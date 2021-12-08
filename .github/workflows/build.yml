@@ -21,7 +21,7 @@ jobs:
       uses: docker/build-push-action@v2
       with:
         context: .
-        tags: ghcr.io/${{ github.repository }}:${{ github.ref }}
+        tags: ghcr.io/${{ github.repository }}:${{ github.sha }}
         outputs: type=docker,dest=_output/docker/yarr.tar
     - name: Upload
       uses: actions/upload-artifact@v2
@@ -180,4 +180,5 @@ jobs:
       uses: docker/build-push-action@v2
       with:
         push: true
-        tags: ghcr.io/${{ github.repository }}:${{ github.ref }}
+        tags: ghcr.io/${{ github.repository }}:${{ github.sha }}
+        labels: ${{ github.ref }}
