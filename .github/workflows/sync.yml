@@ -1,0 +1,40 @@
+# Synchronize this repository with its upstream source (nkanaev/yarre)
+
+name: Synchronize
+
+on:
+  # Run every Saturday at 00:00 UTC
+  schedule:
+    - cron: '0 0 * * 6'
+
+  # Run when manually triggered
+  workflow_dispatch:
+
+jobs:
+  synchronize:
+    name: Synchronize with upstream
+    runs-on: ubuntu-latest
+    steps:
+      # Checkout downstream (This repository)
+      - name: Checkout downstream
+        uses: actions/checkout@v2
+        with:
+          fetch-depth: 0
+
+      # Authenticate to Git
+      - name: Authenticate to Git
+        uses: OleksiyRudenko/gha-git-credentials@v2
+        with:
+          token: ${{ github.token }}
+
+      # Merge upstream
+      - name: Merge upstream
+        run: |
+          git config merge.ours.driver true
+          git config pull.rebase false
+          git remote add upstream https://github.com/nkanaev/yarr.git
+          git pull upstream master
+
+      # Push changes
+      - name: Push changes
+        run: git push origin main

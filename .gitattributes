@@ -1,0 +1,3 @@
+# Always use our version of the below files
+.gitattributes merge=ours
+.github merge=our
