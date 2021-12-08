@@ -1,6 +1,6 @@
 # Synchronize this repository with its upstream source (nkanaev/yarre)
 
-name: Synchronize
+name: sync
 
 on:
   # Run every Saturday at 00:00 UTC

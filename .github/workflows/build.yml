@@ -3,6 +3,11 @@ name: build
 on:
   push:
     tags: ['v*', 'test*']
+  workflow_run:
+    workflows:
+      - "sync"
+    types:
+      - "completed"
 
 jobs:
   build_docker:
