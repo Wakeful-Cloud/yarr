@@ -15,6 +15,8 @@ jobs:
         submodules: 'recursive'
     - name: Set up Docker Buildx
       uses: docker/setup-buildx-action@v1
+    - name: Make output directory
+      run: mkdir -p _output/docker
     - name: Build and export
       uses: docker/build-push-action@v2
       with:
@@ -112,7 +114,7 @@ jobs:
     name: Create Release
     runs-on: ubuntu-latest
     if: ${{ !contains(github.ref, 'test') }}
-    needs: [build_macos, build_windows, build_linux]
+    needs: [build_docker, build_macos, build_windows, build_linux]
     steps:
     - name: Create Release
       uses: actions/create-release@v1
