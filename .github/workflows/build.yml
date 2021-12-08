@@ -5,6 +5,28 @@ on:
     tags: ['v*', 'test*']
 
 jobs:
+  build_docker:
+    name: Build for Docker
+    runs-on: ubuntu-18.04
+    steps:
+    - name: "Checkout"
+      uses: actions/checkout@v2
+      with:
+        submodules: 'recursive'
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v1
+    - name: Build and export
+      uses: docker/build-push-action@v2
+      with:
+        context: .
+        tags: ${{ github.sha }}
+        outputs: type=docker,dest=_output/docker/yarr.tar
+    - name: Upload
+      uses: actions/upload-artifact@v2
+      with:
+        name: docker
+        path: _output/docker/yarr.tar
+
   build_macos:
     name: Build for MacOS
     runs-on: macos-10.15
@@ -142,3 +164,18 @@ jobs:
           asset_path: ./yarr-linux.zip
           asset_name: yarr-${{ github.ref }}-linux64.zip
           asset_content_type: application/zip
+    - name: Login to GitHub Container Registry
+      uses: docker/login-action@v1
+      with:
+        registry: ghcr.io
+        username: ${{ github.repository_owner }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+    - name: Load the Docker image
+      run: |
+        ls ./docker
+        docker load --input ./docker/yarr.tar
+    - name: Build and push
+      uses: docker/build-push-action@v2
+      with:
+        push: true
+        tags: ghcr.io/${{ github.repository }}:${{ github.ref }}
