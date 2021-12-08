@@ -184,6 +184,7 @@ jobs:
       id: docker_metadata
       uses: docker/metadata-action@v3
       with:
+        flavor: latest=true
         images: ghcr.io/${{ github.repository }}
         tags: |
           type=ref,event=tag
