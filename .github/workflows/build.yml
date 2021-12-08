@@ -181,7 +181,7 @@ jobs:
       with:
         images: ghcr.io/${{ github.repository }}
         tags: |
-          type=ref
+          type=ref,event=push tag
           type=sha
     - name: Load Docker image and push
       uses: docker/build-push-action@v2
