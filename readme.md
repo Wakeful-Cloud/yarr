@@ -23,6 +23,13 @@ docker run -d -v [Absolute path on host to store data]:/data -p 7070:7070/tcp --
 ```
 *Note: for improved security and stability, you should use specific commit tags instead of `latest`.*
 
+### Why did I get `Failed to initialise database: attempt to write a readonly database`?
+You need to make the `yarr` user the owner of the data directory:
+```bash
+# Run this as root within the container
+chown yarr:yarr [Absolute path in the container to store data; typically /data]
+```
+
 ### What architectures are supported?
 * X86 64-bit (`linux/amd64`)
 * Arm V6 32-bit (`linux/arm/v6`)
