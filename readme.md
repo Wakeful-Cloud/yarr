@@ -9,7 +9,7 @@ auto-builds Docker images (See [#20](https://github.com/nkanaev/yarr/issues/20))
 ## FAQ
 
 ### What are the differences between this fork and upstream?
-This fork uses a custom, more-secure [Dockerfile](Dockerfile) than upstream. Beyond that, this
+This fork uses a custom, more-secure [Dockerfile](dockerfile) than upstream. Beyond that, this
 fork adds the [GitHub actions](.github/workflows) required for automatic synchronization and
 building.
 
