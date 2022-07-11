@@ -1,198 +1,56 @@
+# Build
+
 name: build
 
 on:
-  push:
-    tags: ['v*', 'test*']
+  # Run after synchronizing
   workflow_run:
     workflows:
-      - "sync"
+      - sync
     types:
-      - "completed"
+      - completed
+
+  # Run when manually triggered
+  workflow_dispatch:
 
 jobs:
   build_docker:
     name: Build for Docker
-    runs-on: ubuntu-18.04
-    steps:
-    - name: "Checkout"
-      uses: actions/checkout@v2
-      with:
-        submodules: 'recursive'
-    - name: Set up Docker Buildx
-      uses: docker/setup-buildx-action@v1
-    - name: Generate Docker metadata
-      id: docker_metadata
-      uses: docker/metadata-action@v3
-      with:
-        images: ghcr.io/${{ github.repository }}
-        tags: |
-          type=sha
-    - name: Build Docker image
-      uses: docker/build-push-action@v2
-      with:
-        cache-from: type=gha
-        cache-to: type=gha,mode=max
-        context: .
-        push: false
-        tags: ${{ steps.docker_metadata.outputs.tags }}
-        labels: ${{ steps.docker_metadata.outputs.labels }}
-
-  build_macos:
-    name: Build for MacOS
-    runs-on: macos-10.15
-    steps:
-    - name: "Checkout"
-      uses: actions/checkout@v2
-      with:
-        submodules: 'recursive'
-    - name: "Setup Go"
-      uses: actions/setup-go@v2
-      with:
-        go-version: '^1.16'
-    - name: Cache Go Modules
-      uses: actions/cache@v2
-      with:
-        path: ~/go/pkg/mod
-        key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
-        restore-keys: |
-          ${{ runner.os }}-go-
-    - name: "Build"
-      run: make build_macos
-    - name: Upload
-      uses: actions/upload-artifact@v2
-      with:
-        name: macos
-        path: _output/macos/yarr.app
-
-  build_windows:
-    name: Build for Windows
-    runs-on: windows-2019
-    steps:
-    - name: "Checkout"
-      uses: actions/checkout@v2
-      with:
-        submodules: 'recursive'
-    - name: "Setup Go"
-      uses: actions/setup-go@v2
-      with:
-        go-version: '^1.16'
-    - name: Cache Go Modules
-      uses: actions/cache@v2
-      with:
-        path: ~/go/pkg/mod
-        key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
-        restore-keys: |
-          ${{ runner.os }}-go-
-    - name: "Build"
-      run: make build_windows
-    - name: Upload
-      uses: actions/upload-artifact@v2
-      with:
-        name: windows
-        path: _output/windows/yarr.exe
-
-  build_linux:
-    name: Build for Linux
-    runs-on: ubuntu-18.04
-    steps:
-    - name: "Checkout"
-      uses: actions/checkout@v2
-      with:
-        submodules: 'recursive'
-    - name: "Setup Go"
-      uses: actions/setup-go@v2
-      with:
-        go-version: '^1.16'
-    - name: Cache Go Modules
-      uses: actions/cache@v2
-      with:
-        path: ~/go/pkg/mod
-        key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
-        restore-keys: |
-          ${{ runner.os }}-go-
-    - name: "Build"
-      run: make build_linux
-    - name: Upload
-      uses: actions/upload-artifact@v2
-      with:
-        name: linux
-        path: _output/linux/yarr
-
-  create_release:
-    name: Create Release
     runs-on: ubuntu-latest
-    if: ${{ !contains(github.ref, 'test') }}
-    needs: [build_docker, build_macos, build_windows, build_linux]
     steps:
-    - name: Create Release
-      uses: actions/create-release@v1
-      id: create_release
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      with:
-          tag_name: ${{ github.ref }}
-          release_name: ${{ github.ref }}
-          draft: true
-          prerelease: true
-    - name: Download Artifacts
-      uses: actions/download-artifact@v2
-      with:
-        path: .
-    - name: Preparation
-      run: |
-        ls -R
-        chmod u+x macos/Contents/MacOS/yarr
-        chmod u+x linux/yarr
+      - name: Checkout
+        uses: actions/checkout@v3
 
-        mv macos yarr.app     && zip -r yarr-macos.zip yarr.app
-        mv windows/yarr.exe . && zip yarr-windows.zip yarr.exe
-        mv linux/yarr .       && zip yarr-linux.zip yarr
-    - name: Upload MacOS
-      uses: actions/upload-release-asset@v1
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      with:
-          upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: ./yarr-macos.zip
-          asset_name: yarr-${{ github.ref }}-macos64.zip
-          asset_content_type: application/zip
-    - name: Upload Windows
-      uses: actions/upload-release-asset@v1
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      with:
-          upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: ./yarr-windows.zip
-          asset_name: yarr-${{ github.ref }}-windows64.zip
-          asset_content_type: application/zip
-    - name: Upload Linux
-      uses: actions/upload-release-asset@v1
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      with:
-          upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: ./yarr-linux.zip
-          asset_name: yarr-${{ github.ref }}-linux64.zip
-          asset_content_type: application/zip
-    - name: Login to GitHub Container Registry
-      uses: docker/login-action@v1
-      with:
-        registry: ghcr.io
-        username: ${{ github.repository_owner }}
-        password: ${{ secrets.GITHUB_TOKEN }}
-    - name: Generate Docker metadata
-      id: docker_metadata
-      uses: docker/metadata-action@v3
-      with:
-        flavor: latest=true
-        images: ghcr.io/${{ github.repository }}
-        tags: |
-          type=ref,event=tag
-          type=sha
-    - name: Load Docker image and push
-      uses: docker/build-push-action@v2
-      with:
-        cache-from: type=gha
-        push: true
-        tags: ${{ steps.docker_metadata.outputs.tags }}
-        labels: ${{ steps.docker_metadata.outputs.labels }}
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v2
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v2
+
+      - name: Generate metadata
+        id: docker_metadata
+        uses: docker/metadata-action@v4
+        with:
+          flavor: latest=true
+          images: ghcr.io/${{ github.repository }}
+          tags: |
+            type=ref,event=tag
+            type=sha
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v2
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push
+        uses: docker/build-push-action@v3
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm/v6,linux/arm/v7,linux/arm64/v8
+          push: true
+          tags: ${{ steps.docker_metadata.outputs.tags }}
+          labels: ${{ steps.docker_metadata.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

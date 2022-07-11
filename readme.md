@@ -1,52 +1,30 @@
 # yarr
 
-**yarr** (yet another rss reader) is a web-based feed aggregator which can be used both
-as a desktop application and a personal self-hosted server.
+[![GitHub Synchronization Status](https://img.shields.io/github/workflow/status/wakeful-cloud/yarr/sync?label=Synchronization&style=flat-square)](https://github.com/wakeful-cloud/yarr/actions/workflows/sync.yml)
+[![GitHub Build Status](https://img.shields.io/github/workflow/status/wakeful-cloud/yarr/build?label=Build&style=flat-square)](https://github.com/wakeful-cloud/yarr/actions/workflows/build.yml)
 
-It is written in Go with the frontend in Vue.js. The storage is backed by SQLite.
+Fork of [Nazar Kanaev's yarr](https://github.com/nkanaev/yarr) that auto-synchronizes with upstream and
+auto-builds Docker images (See [#20](https://github.com/nkanaev/yarr/issues/20)).
 
-![screenshot](etc/promo.png)
+## FAQ
 
-## usage
+### What are the differences between this fork and upstream?
+This fork uses a custom, more-secure [Dockerfile](Dockerfile) than upstream. Beyond that, this
+fork adds the [GitHub actions](.github/workflows) required for automatic synchronization and
+building.
 
-The latest prebuilt binaries for Linux/MacOS/Windows are available
-[here](https://github.com/nkanaev/yarr/releases/latest).
+### How can I use this repository?
+```bash
+# Run in foreground
+docker run -it -v [Absolute path on host to store data]:/data -p 7070:7070/tcp --name yarr ghcr.io/wakeful-cloud/yarr:latest
 
-### macos
+# OR run in background
+docker run -d -v [Absolute path on host to store data]:/data -p 7070:7070/tcp --name yarr ghcr.io/wakeful-cloud/yarr:latest
+```
+*Note: for improved security and stability, you should use specific commit tags instead of `latest`.*
 
-Download `yarr-*-macos64.zip`, unzip it, place `yarr.app` in `/Applications` folder.
-To open the app follow the instructions provided [here][macos-open] or run the command below:
-
-    xattr -d com.apple.quarantine /Applications/yarr.app
-
-[macos-open]: https://support.apple.com/en-gb/guide/mac-help/mh40616/mac
-
-### windows
-
-Download `yarr-*-windows32.zip`, unzip it, open `yarr.exe`
-
-### linux
-
-The Linux version doesn't come with the desktop environment integration.
-For easy access on DE it is recommended to create a desktop menu entry by
-by following the steps below:
-
-    unzip -x yarr*.zip
-    sudo mv yarr /usr/local/bin/yarr
-    sudo nano /usr/local/share/applications/yarr.desktop
-
-and pasting the content:
-
-    [Desktop Entry]
-    Name=yarr
-    Exec=/usr/local/bin/yarr -open
-    Icon=rss
-    Type=Application
-    Categories=Internet;
-
-For self-hosting, see `yarr -h` for auth, tls & server configuration flags.
-For building from source code, see [build.md](build.md)
-
-## credits
-
-[Feather](http://feathericons.com/) for icons.
+### What architectures are supported?
+* X86 64-bit (`linux/amd64`)
+* Arm V6 32-bit (`linux/arm/v6`)
+* Arm V7 32-bit (`linux/arm/v7`)
+* Arm V8 64-bit (`linux/arm64/v8`)
