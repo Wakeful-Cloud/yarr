@@ -25,7 +25,7 @@ Name | Required/Default | Description
 `GID` | `1000` | Runner group ID
 `ADDRESS` | `0.0.0.0` | Listening address
 `PORT` | `7070` | Listening port
-`DATA` | `/data/` | Data directory
+`DATA` | `/data` | Data directory
 
 ## FAQ
 
