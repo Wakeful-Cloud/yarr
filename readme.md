@@ -6,14 +6,9 @@
 Fork of [Nazar Kanaev's yarr](https://github.com/nkanaev/yarr) that auto-synchronizes with upstream and
 auto-builds Docker images (See [#20](https://github.com/nkanaev/yarr/issues/20)).
 
-## FAQ
+## Documentation
 
-### What are the differences between this fork and upstream?
-This fork uses a custom, more-secure [Dockerfile](dockerfile) than upstream. Beyond that, this
-fork adds the [GitHub actions](.github/workflows) required for automatic synchronization and
-building.
-
-### How can I use this repository?
+### Running
 ```bash
 # Run in foreground
 docker run -it -v [Absolute path on host to store data]:/data -p 7070:7070/tcp --name yarr ghcr.io/wakeful-cloud/yarr:latest
@@ -23,12 +18,21 @@ docker run -d -v [Absolute path on host to store data]:/data -p 7070:7070/tcp --
 ```
 *Note: for improved security and stability, you should use specific commit tags instead of `latest`.*
 
-### Why did I get `Failed to initialise database: attempt to write a readonly database`?
-You need to make the `yarr` user the owner of the data directory:
-```bash
-# Run this as root within the container
-chown yarr:yarr [Absolute path in the container to store data; typically /data]
-```
+### Environment Variables
+Name | Required/Default | Description
+--- | --- | ---
+`UID` | `1000` | Runner user ID
+`GID` | `1000` | Runner group ID
+`ADDRESS` | `0.0.0.0` | Listening address
+`PORT` | `7070` | Listening port
+`DATA` | `/data/` | Data directory
+
+## FAQ
+
+### What are the differences between this fork and upstream?
+This fork uses a custom, more-secure, more-flexible [Dockerfile](dockerfile) than upstream. Beyond
+that, this fork adds the [GitHub actions](.github/workflows) required for automatic synchronization
+and building.
 
 ### What architectures are supported?
 * X86 64-bit (`linux/amd64`)

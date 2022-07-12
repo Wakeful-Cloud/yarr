@@ -1,0 +1,5 @@
+/_output
+/yarr
+*.db
+*.syso
+versioninfo.rc

@@ -1,7 +1,7 @@
 # Builder
 FROM golang:1.18.3-alpine3.16 AS builder
 
-# Set the directory
+# Set the working directory
 WORKDIR /src
 
 # Install packages
@@ -16,22 +16,20 @@ RUN make build_default
 # Runner
 FROM alpine:3.16
 
-# Create a user
-RUN addgroup -S yarr
-RUN adduser -S -h /home/yarr -H -G yarr yarr
+# Set the working directory
 WORKDIR /home/yarr
 
 # Copy the build
-COPY --chown=yarr:yarr --from=builder /src/_output/yarr .
+COPY --from=builder /src/_output/yarr .
+
+# Copy the entrypoint
+COPY entrypoint.sh .
 
 # Install packages
-RUN apk add --no-cache ca-certificates
+RUN apk add --no-cache ca-certificates su-exec
 
 # Update certificates
 RUN update-ca-certificates
 
-# Switch to the user
-USER yarr
-
-# Start the server
-CMD ["/home/yarr/yarr", "-addr", "0.0.0.0:7070", "-db", "/data/yarr.db"]
+# Start the entrypoint
+CMD ["/home/yarr/entrypoint.sh"]
