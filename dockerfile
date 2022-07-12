@@ -24,6 +24,7 @@ COPY --from=builder /src/_output/yarr .
 
 # Copy the entrypoint
 COPY entrypoint.sh .
+RUN chmod +x entrypoint.sh
 
 # Install packages
 RUN apk add --no-cache ca-certificates su-exec
