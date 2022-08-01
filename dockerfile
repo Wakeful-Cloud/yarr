@@ -1,5 +1,5 @@
 # Builder
-FROM golang:1.18.3-alpine3.16 AS builder
+FROM golang:1.18.5-alpine3.16 AS builder
 
 # Set the working directory
 WORKDIR /src
