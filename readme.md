@@ -1,7 +1,7 @@
 # yarr
 
-[![GitHub Synchronization Status](https://img.shields.io/github/workflow/status/wakeful-cloud/yarr/sync?label=Synchronization&style=flat-square)](https://github.com/wakeful-cloud/yarr/actions/workflows/sync.yml)
-[![GitHub Build Status](https://img.shields.io/github/workflow/status/wakeful-cloud/yarr/build?label=Build&style=flat-square)](https://github.com/wakeful-cloud/yarr/actions/workflows/build.yml)
+[![GitHub Synchronization Status](https://img.shields.io/github/actions/workflow/status/wakeful-cloud/yarr/sync.yml?label=Synchronization&style=flat-square)](https://github.com/wakeful-cloud/yarr/actions/workflows/sync.yml)
+[![GitHub Build Status](https://img.shields.io/github/actions/workflow/status/wakeful-cloud/yarr/build.yml?label=Build&style=flat-square)](https://github.com/wakeful-cloud/yarr/actions/workflows/build.yml)
 
 Fork of [Nazar Kanaev's yarr](https://github.com/nkanaev/yarr) that auto-synchronizes with upstream and
 auto-builds Docker images (See [#20](https://github.com/nkanaev/yarr/issues/20)).
