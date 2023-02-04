@@ -39,6 +39,7 @@ func (s *Server) handler() http.Handler {
 	}
 
 	r.For("/", s.handleIndex)
+	r.For("/manifest.json", s.handleManifest)
 	r.For("/static/*path", s.handleStatic)
 	r.For("/api/status", s.handleStatus)
 	r.For("/api/folders", s.handleFolderList)
@@ -74,6 +75,24 @@ func (s *Server) handleStatic(c *router.Context) {
 		return
 	}
 	http.StripPrefix(s.BasePath+"/static/", http.FileServer(http.FS(assets.FS))).ServeHTTP(c.Out, c.Req)
+}
+
+func (s *Server) handleManifest(c *router.Context) {
+	c.JSON(http.StatusOK, map[string]interface{}{
+		"$schema":     "https://json.schemastore.org/web-manifest-combined.json",
+		"name":        "yarr!",
+		"short_name":  "yarr",
+		"description": "yet another rss reader",
+		"display":     "standalone",
+		"start_url":   s.BasePath,
+		"icons": []map[string]interface{}{
+			{
+				"src":   s.BasePath + "/static/graphicarts/favicon.png",
+				"sizes": "64x64",
+				"type":  "image/png",
+			},
+		},
+	})
 }
 
 func (s *Server) handleStatus(c *router.Context) {
@@ -225,6 +244,7 @@ func (s *Server) handleFeedList(c *router.Context) {
 			if len(items) > 0 {
 				s.db.CreateItems(items)
 				s.db.SetFeedSize(feed.Id, len(items))
+				s.db.SyncSearch()
 			}
 			s.worker.FindFeedFavicon(*feed)
 
@@ -456,9 +476,9 @@ func (s *Server) handleOPMLExport(c *router.Context) {
 func (s *Server) handlePageCrawl(c *router.Context) {
 	url := c.Req.URL.Query().Get("url")
 
-    if newUrl := silo.RedirectURL(url); newUrl != "" {
-        url = newUrl
-    }
+	if newUrl := silo.RedirectURL(url); newUrl != "" {
+		url = newUrl
+	}
 	if content := silo.VideoIFrame(url); content != "" {
 		c.JSON(http.StatusOK, map[string]string{
 			"content": sanitizer.Sanitize(url, content),
@@ -474,9 +494,9 @@ func (s *Server) handlePageCrawl(c *router.Context) {
 	}
 	content, err := readability.ExtractContent(strings.NewReader(body))
 	if err != nil {
-        c.JSON(http.StatusOK, map[string]string{
-            "content": "error: " + err.Error(),
-        })
+		c.JSON(http.StatusOK, map[string]string{
+			"content": "error: " + err.Error(),
+		})
 		return
 	}
 	content = sanitizer.Sanitize(url, content)
