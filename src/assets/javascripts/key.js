@@ -165,6 +165,24 @@ var keybindings = {
   "3": shortcutFunctions.showAll,
 }
 
+var codebindings = {
+  "KeyO": shortcutFunctions.openItemLink,
+  "KeyI": shortcutFunctions.toggleReadability,
+  //"r": shortcutFunctions.toggleItemRead,
+  //"KeyR": shortcutFunctions.markAllRead,
+  "KeyS": shortcutFunctions.toggleItemStarred,
+  "Slash": shortcutFunctions.focusSearch,
+  "KeyJ": shortcutFunctions.nextItem,
+  "KeyK": shortcutFunctions.previousItem,
+  "KeyL": shortcutFunctions.nextFeed,
+  "KeyH": shortcutFunctions.previousFeed,
+  "KeyF": shortcutFunctions.scrollForward,
+  "KeyB": shortcutFunctions.scrollBackward,
+  "Digit1": shortcutFunctions.showUnread,
+  "Digit2": shortcutFunctions.showStarred,
+  "Digit3": shortcutFunctions.showAll,
+}
+
 function isTextBox(element) {
   var tagName = element.tagName.toLowerCase()
   // Input elements that aren't text
@@ -179,10 +197,10 @@ function isTextBox(element) {
 document.addEventListener('keydown',function(event) {
   // Ignore while focused on text or
   // when using modifier keys (to not clash with browser behaviour)
-  if (isTextBox(event.target) || event.metaKey || event.ctrlKey) {
+  if (isTextBox(event.target) || event.metaKey || event.ctrlKey || event.altKey) {
     return
   }
-  var keybindFunction = keybindings[event.key]
+  var keybindFunction = keybindings[event.key] || codebindings[event.code]
   if (keybindFunction) {
     event.preventDefault()
     keybindFunction()
