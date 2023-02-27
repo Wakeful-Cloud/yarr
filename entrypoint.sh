@@ -17,4 +17,4 @@ chown yarr:yarr $DATA
 
 # Start the server as the yarr user
 echo "Starting yarr as $UID:$GID..."
-su-exec yarr:yarr /home/yarr/yarr -addr "$ADDRESS:$PORT" -db "$DATA/yarr.db"
+exec su-exec yarr:yarr /home/yarr/yarr -addr "$ADDRESS:$PORT" -db "$DATA/yarr.db"
