@@ -1,6 +1,6 @@
 version: '3.3'
 services:
-    wakeful-cloud:
+    yarr:
         container_name: yarr
         ports:
             - '7070:7070/tcp'
