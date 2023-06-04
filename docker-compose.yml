@@ -1,0 +1,13 @@
+version: '3.3'
+services:
+    yarr:
+        container_name: yarr
+        ports:
+            - '7070:7070/tcp'
+        volumes:
+            - .:/data
+        environment:
+            - UID=1000
+            - GID=1000
+            - ADDRESS=0.0.0.0            
+        image: 'ghcr.io/wakeful-cloud/yarr:latest'
