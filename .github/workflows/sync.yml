@@ -33,7 +33,7 @@ jobs:
           git config merge.ours.driver true
           git config pull.rebase false
           git remote add upstream https://github.com/nkanaev/yarr.git
-          git pull upstream master
+          git pull --strategy-option theirs --no-edit upstream master
 
       # Push changes
       - name: Push changes
