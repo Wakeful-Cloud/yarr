@@ -1,6 +1,6 @@
 # Always use our version of the below files
 /.gitattributes merge=ours
 /.github/* merge=ours
-/dockerfile merge=ours
+/Dockerfile merge=ours
 /entrypoint.sh merge=ours
 /readme.md merge=ours

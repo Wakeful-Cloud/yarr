@@ -30,7 +30,7 @@ Name | Required/Default | Description
 ## FAQ
 
 ### What are the differences between this fork and upstream?
-This fork uses a custom, more-secure, more-flexible [Dockerfile](dockerfile) than upstream. Beyond
+This fork uses a custom, more-secure, more-flexible [Dockerfile](Dockerfile) than upstream. Beyond
 that, this fork adds the [GitHub actions](.github/workflows) required for automatic synchronization
 and building.
 
