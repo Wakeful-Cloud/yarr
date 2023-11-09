@@ -15,26 +15,51 @@ jobs:
     name: Synchronize with upstream
     runs-on: ubuntu-latest
     steps:
-      # Checkout downstream (This repository)
-      - name: Checkout downstream
+      # Checkout downstream (This repository) twice, once for the old state and once for the new state
+      - name: Checkout downstream (Old)
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          path: old
+
+      - name: Checkout downstream (New)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          path: new
 
       # Authenticate to Git
       - name: Authenticate to Git
         uses: OleksiyRudenko/gha-git-credentials@v2
         with:
+          global: true
           token: ${{ github.token }}
 
-      # Merge upstream
+      # Merge upstream (Will overwrite all changes)
       - name: Merge upstream
+        working-directory: new
         run: |
-          git config merge.ours.driver true
           git config pull.rebase false
           git remote add upstream https://github.com/nkanaev/yarr.git
           git pull --strategy-option theirs --no-edit upstream master
 
+      # Merge downstream (Will restore certain files)
+      - name: Merge downstream
+        run: |
+          for file in .github Dockerfile entrypoint.sh readme.md; do
+            # Remove the new file
+            rm -rf new/$file
+
+            # Copy the old file
+            cp -rf old/$file new/$file
+          done
+
+      # Commit changes
+      - name: Commit changes
+        working-directory: new
+        run: git commit -am "Synchronize with upstream"
+
       # Push changes
       - name: Push changes
+        working-directory: new
         run: git push origin main
