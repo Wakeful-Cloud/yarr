@@ -30,10 +30,10 @@ jobs:
 
       # Authenticate to Git
       - name: Authenticate to Git
-        uses: OleksiyRudenko/gha-git-credentials@v2
-        with:
-          global: true
-          token: ${{ github.token }}
+        run: |
+          git config --global user.email "github-action@users.noreply.github.com"
+          git config --global user.name "GitHub Action"
+          git config --global user.password "${{ github.token }}"
 
       # Merge upstream (Will overwrite all changes)
       - name: Merge upstream
