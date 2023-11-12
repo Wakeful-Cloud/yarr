@@ -57,7 +57,7 @@ jobs:
       # Commit changes
       - name: Commit changes
         working-directory: new
-        run: git commit -am "Synchronize with upstream"
+        run: git diff-index --quiet HEAD || git commit -am "Synchronize with upstream"
 
       # Push changes
       - name: Push changes
