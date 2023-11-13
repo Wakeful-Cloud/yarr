@@ -14,6 +14,7 @@ jobs:
   synchronize:
     name: Synchronize with upstream
     runs-on: ubuntu-latest
+    timeout-minutes: 2
     steps:
       # Checkout downstream (This repository) twice, once for the old state and once for the new state
       - name: Checkout downstream (Old)
