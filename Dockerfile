@@ -14,7 +14,7 @@ COPY . .
 RUN make build_default
 
 # Runner
-FROM alpine:3.18
+FROM alpine:3.19
 
 # Set the working directory
 WORKDIR /home/yarr
