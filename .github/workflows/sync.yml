@@ -3,9 +3,9 @@
 name: sync
 
 on:
-  # Run every Saturday at 00:00 UTC
+  # Run on the 1st of every month at 00:00 UTC
   schedule:
-    - cron: '0 0 * * 6'
+    - cron: '0 0 1 * *'
 
   # Run when manually triggered
   workflow_dispatch:
@@ -47,7 +47,7 @@ jobs:
       # Merge downstream (Will restore certain files)
       - name: Merge downstream
         run: |
-          for file in .github Dockerfile entrypoint.sh readme.md; do
+          for file in .gitattributes .github Dockerfile entrypoint.sh readme.md; do
             # Remove the new file
             rm -rf new/$file
 
