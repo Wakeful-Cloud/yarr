@@ -42,12 +42,10 @@ jobs:
 
       - name: Pull upstream
         working-directory: new
+        continue-on-error: true
         run: |
           git config pull.rebase false
-          git pull --strategy-option theirs --no-edit upstream main
-
-      - name: Remove conflicting files
-        run: |
+          git pull --strategy-option theirs --no-edit upstream master
           git diff --name-only --diff-filter=U | xargs git rm
 
       - name: Merge downstream
