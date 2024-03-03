@@ -29,22 +29,27 @@ jobs:
           fetch-depth: 0
           path: new
 
-      # Authenticate to Git
       - name: Authenticate to Git
         run: |
           git config --global user.email "github-action@users.noreply.github.com"
           git config --global user.name "GitHub Action"
           git config --global user.password "${{ github.token }}"
 
-      # Merge upstream (Will overwrite all changes)
-      - name: Merge upstream
+      - name: Setup upstream
+        working-directory: new
+        run: |
+          git remote add upstream https://github.com/nkanaev/yarr.git
+
+      - name: Pull upstream
         working-directory: new
         run: |
           git config pull.rebase false
-          git remote add upstream https://github.com/nkanaev/yarr.git
-          git pull --strategy-option theirs --no-edit upstream master
+          git pull --strategy-option theirs --no-edit upstream main
 
-      # Merge downstream (Will restore certain files)
+      - name: Remove conflicting files
+        run: |
+          git diff --name-only --diff-filter=U | xargs git rm
+
       - name: Merge downstream
         run: |
           for file in .gitattributes .github Dockerfile entrypoint.sh readme.md; do
@@ -55,13 +60,11 @@ jobs:
             cp -rf old/$file new/$file
           done
 
-      # Commit changes
       - name: Commit changes
         working-directory: new
         continue-on-error: true
         run: git commit -am "Synchronize with upstream"
 
-      # Push changes
       - name: Push changes
         working-directory: new
         run: git push origin main
