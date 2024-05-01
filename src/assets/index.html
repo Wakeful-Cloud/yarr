@@ -220,6 +220,10 @@
                         <span class="icon mr-1">{% inline "edit.svg" %}</span>
                         Rename
                     </button>
+                    <button class="dropdown-item" @click="updateFeedLink(current.feed)" v-if="current.feed.feed_link">
+                        <span class="icon mr-1">{% inline "edit.svg" %}</span>
+                        Change Link
+                    </button>
                     <div class="dropdown-divider"></div>
                     <header class="dropdown-header">Move to...</header>
                     <button class="dropdown-item"
@@ -338,7 +342,11 @@
                 <div class="content-wrapper">
                     <h1><b>{{ itemSelectedDetails.title || 'untitled' }}</b></h1>
                     <div class="text-muted">
-                        <div>{{ feedsById[itemSelectedDetails.feed_id].title }}</div>
+                        <div>
+                            <span class="cursor-pointer" @click="feedSelected = 'feed:'+(feedsById[itemSelectedDetails.feed_id] || {}).id">
+                                {{ (feedsById[itemSelectedDetails.feed_id] || {}).title }}
+                            </span>
+                        </div>
                         <time>{{ formatDate(itemSelectedDetails.date) }}</time>
                     </div>
                     <hr>

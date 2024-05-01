@@ -525,6 +525,14 @@ var vm = new Vue({
         })
       }
     },
+    updateFeedLink: function(feed) {
+      var newLink = prompt('Enter feed link', feed.feed_link)
+      if (newLink) {
+        api.feeds.update(feed.id, {feed_link: newLink}).then(function() {
+          feed.feed_link = newLink
+        })
+      }
+    },
     renameFeed: function(feed) {
       var newTitle = prompt('Enter new title', feed.title)
       if (newTitle) {

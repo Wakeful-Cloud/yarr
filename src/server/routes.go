@@ -35,6 +35,7 @@ func (s *Server) handler() http.Handler {
 			Username: s.Username,
 			Password: s.Password,
 			Public:   []string{"/static", "/fever"},
+            DB:       s.db,
 		}
 		r.Use(a.Handler)
 	}
@@ -291,6 +292,11 @@ func (s *Server) handleFeed(c *router.Context) {
 			} else if reflect.TypeOf(f_id).Kind() == reflect.Float64 {
 				folderId := int64(f_id.(float64))
 				s.db.UpdateFeedFolder(id, &folderId)
+			}
+		}
+		if link, ok := body["feed_link"]; ok {
+			if reflect.TypeOf(link).Kind() == reflect.String {
+				s.db.UpdateFeedLink(id, link.(string))
 			}
 		}
 		c.Out.WriteHeader(http.StatusOK)
