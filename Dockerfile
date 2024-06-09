@@ -1,5 +1,5 @@
 # Builder
-FROM golang:1.22.3-alpine3.18 AS builder
+FROM golang:1.22.4-alpine3.20 AS builder
 
 # Set the working directory
 WORKDIR /src
@@ -11,7 +11,7 @@ RUN apk add --no-cache build-base git
 COPY . .
 
 # Build for the current platform
-RUN make build_default
+RUN (export GOARCH="$(go env GOARCH)" && export GOOS="$(go env GOOS)" && make build_default)
 
 # Runner
 FROM alpine:3.20
