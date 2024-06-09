@@ -11,7 +11,7 @@ RUN apk add --no-cache build-base git
 COPY . .
 
 # Build for the current platform
-RUN (export GOARCH="$(go env GOARCH)" && export GOOS="$(go env GOOS)" && make build_default)
+RUN (export GOARCH="$(go env GOARCH)" && export GOOS="$(go env GOOS)" && export CGO_CFLAGS="-D_LARGEFILE64_SOURCE" && make build_default)
 
 # Runner
 FROM alpine:3.20
