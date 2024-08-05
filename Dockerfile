@@ -34,3 +34,5 @@ RUN update-ca-certificates
 
 # Start the entrypoint
 CMD ["/home/yarr/entrypoint.sh"]
+
+EXPOSE 7070/tcp
