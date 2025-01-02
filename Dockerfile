@@ -14,7 +14,7 @@ COPY . .
 RUN (export GOARCH="$(go env GOARCH)" && export GOOS="$(go env GOOS)" && export CGO_CFLAGS="-D_LARGEFILE64_SOURCE" && make build_default)
 
 # Runner
-FROM alpine:3.20
+FROM alpine:3.21
 
 # Set the working directory
 WORKDIR /home/yarr
