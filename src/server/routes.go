@@ -87,7 +87,7 @@ func (s *Server) handleManifest(c *router.Context) {
 		"short_name":  "yarr",
 		"description": "yet another rss reader",
 		"display":     "standalone",
-		"start_url":   s.BasePath,
+		"start_url":   "/" + strings.TrimPrefix(s.BasePath, "/"),
 		"icons": []map[string]interface{}{
 			{
 				"src":   s.BasePath + "/static/graphicarts/favicon.png",
@@ -329,6 +329,9 @@ func (s *Server) handleItem(c *router.Context) {
 		}
 
 		item.Content = sanitizer.Sanitize(item.Link, item.Content)
+		for i, link := range item.MediaLinks {
+			item.MediaLinks[i].Description = sanitizer.Sanitize(item.Link, link.Description)
+		}
 
 		c.JSON(http.StatusOK, item)
 	} else if c.Req.Method == "PUT" {

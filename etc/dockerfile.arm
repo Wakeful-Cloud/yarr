@@ -12,9 +12,9 @@ RUN env DEBIAN_FRONTEND=noninteractive \
     apt install -y qemu-user qemu-user-static
 
 # Install Golang
-RUN wget --quiet https://go.dev/dl/go1.18.2.linux-amd64.tar.gz && \
+RUN wget --quiet https://go.dev/dl/go1.24.1.linux-amd64.tar.gz && \
     rm -rf /usr/local/go && \
-    tar -C /usr/local -xzf go1.18.2.linux-amd64.tar.gz
+    tar -C /usr/local -xzf go1.24.1.linux-amd64.tar.gz
 ENV PATH=$PATH:/usr/local/go/bin
 
 # Copy source code
@@ -27,18 +27,12 @@ RUN env \
         CC=aarch64-linux-gnu-gcc \
         CGO_ENABLED=1 \
         GOOS=linux GOARCH=arm64 \
-    go build \
-        -tags "sqlite_foreign_keys linux" \
-        -ldflags="-s -w" \
-        -o /root/out/yarr.arm64 ./cmd/yarr
+    make host && mv out/yarr /root/out/yarr.arm64
 
 RUN env \
         CC=arm-linux-gnueabihf-gcc \
         CGO_ENABLED=1 \
         GOOS=linux GOARCH=arm GOARM=7 \
-    go build \
-        -tags "sqlite_foreign_keys linux" \
-        -ldflags="-s -w" \
-        -o /root/out/yarr.arm7 ./cmd/yarr
+    make host && mv out/yarr /root/out/yarr.armv7
 
 CMD ["/bin/bash"]
