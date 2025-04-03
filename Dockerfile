@@ -11,7 +11,7 @@ RUN apk add --no-cache build-base git
 COPY . .
 
 # Build for the current platform
-RUN (export GOARCH="$(go env GOARCH)" && export GOOS="$(go env GOOS)" && export CGO_CFLAGS="-D_LARGEFILE64_SOURCE" && make build_default)
+RUN make host
 
 # Runner
 FROM alpine:3.21
@@ -20,7 +20,7 @@ FROM alpine:3.21
 WORKDIR /home/yarr
 
 # Copy the build
-COPY --from=builder /src/_output/yarr .
+COPY --from=builder /src/out/yarr .
 
 # Copy the entrypoint
 COPY entrypoint.sh .
