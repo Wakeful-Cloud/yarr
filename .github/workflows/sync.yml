@@ -18,13 +18,13 @@ jobs:
     steps:
       # Checkout downstream (This repository) twice, once for the old state and once for the new state
       - name: Checkout downstream (Old)
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           fetch-depth: 0
           path: old
 
       - name: Checkout downstream (New)
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           fetch-depth: 0
           path: new
