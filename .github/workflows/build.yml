@@ -41,7 +41,7 @@ jobs:
 
       - name: Generate metadata
         id: docker_metadata
-        uses: docker/metadata-action@v5
+        uses: docker/metadata-action@v6
         with:
           flavor: latest=true
           images: ghcr.io/${{ github.repository }}
