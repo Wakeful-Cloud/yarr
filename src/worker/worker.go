@@ -113,18 +113,17 @@ func (w *Worker) refresher(feeds []storage.Feed) {
 	srcqueue := make(chan storage.Feed, len(feeds))
 	dstqueue := make(chan []storage.Item)
 
-	for i := 0; i < NUM_WORKERS; i++ {
+	for range NUM_WORKERS {
 		go w.worker(srcqueue, dstqueue)
 	}
 
 	for _, feed := range feeds {
 		srcqueue <- feed
 	}
-	for i := 0; i < len(feeds); i++ {
+	for range feeds {
 		items := <-dstqueue
 		if len(items) > 0 {
 			w.db.CreateItems(items)
-			w.db.SetFeedSize(items[0].FeedId, len(items))
 		}
 		atomic.AddInt32(w.pending, -1)
 		w.db.SyncSearch()

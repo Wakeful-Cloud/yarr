@@ -18,6 +18,8 @@ var migrations = []func(*sql.Tx) error{
 	m08_normalize_datetime,
 	m09_change_item_index,
 	m10_add_item_medialinks,
+	m11_add_item_last_arrived,
+	m12_remove_feed_sizes,
 }
 
 var maxVersion = int64(len(migrations))
@@ -290,7 +292,10 @@ func m08_normalize_datetime(tx *sql.Tx) error {
 		if err != nil {
 			return err
 		}
-		_, err = tx.Exec(`update items set date_arrived = ? where id = ?;`, dateArrived.UTC(), id)
+		_, err = tx.Exec(`update items set date_arrived = :date_arrived where id = :id;`,
+			sql.Named("date_arrived", dateArrived.UTC()),
+			sql.Named("id", id),
+		)
 		if err != nil {
 			return err
 		}
@@ -327,5 +332,16 @@ func m10_add_item_medialinks(tx *sql.Tx) error {
 		alter table items drop column podcast_url;
 	`
 	_, err := tx.Exec(sql)
+	return err
+}
+
+func m11_add_item_last_arrived(tx *sql.Tx) error {
+	sql := `alter table items add column last_arrived datetime`
+	_, err := tx.Exec(sql)
+	return err
+}
+
+func m12_remove_feed_sizes(tx *sql.Tx) error {
+	_, err := tx.Exec(`drop table if exists feed_sizes`)
 	return err
 }

@@ -1,6 +1,7 @@
 package storage
 
 import (
+	"database/sql"
 	"database/sql/driver"
 	"encoding/json"
 	"fmt"
@@ -134,17 +135,25 @@ func (s *Storage) CreateItems(items []Item) bool {
 			insert into items (
 				guid, feed_id, title, link, date,
 				content, media_links,
-				date_arrived, status
+				date_arrived, last_arrived, status
 			)
 			values (
-				?, ?, ?, ?, strftime('%Y-%m-%d %H:%M:%f', ?),
-				?, ?,
-				?, ?
+				:guid, :feed_id, :title, :link, strftime('%Y-%m-%d %H:%M:%f', :date),
+				:content, :media_links,
+				:date_arrived, :last_arrived, :status
 			)
-			on conflict (feed_id, guid) do nothing`,
-			item.GUID, item.FeedId, item.Title, item.Link, item.Date,
-			item.Content, item.MediaLinks,
-			now, UNREAD,
+			on conflict (feed_id, guid) do update set
+				last_arrived = :last_arrived`,
+			sql.Named("guid", item.GUID),
+			sql.Named("feed_id", item.FeedId),
+			sql.Named("title", item.Title),
+			sql.Named("link", item.Link),
+			sql.Named("date", item.Date),
+			sql.Named("content", item.Content),
+			sql.Named("media_links", item.MediaLinks),
+			sql.Named("date_arrived", now),
+			sql.Named("last_arrived", now),
+			sql.Named("status", UNREAD),
 		)
 		if err != nil {
 			log.Print(err)
@@ -162,20 +171,20 @@ func (s *Storage) CreateItems(items []Item) bool {
 	return true
 }
 
-func listQueryPredicate(filter ItemFilter, newestFirst bool) (string, []interface{}) {
+func listQueryPredicate(filter ItemFilter, newestFirst bool) (string, []any) {
 	cond := make([]string, 0)
-	args := make([]interface{}, 0)
+	args := make([]any, 0)
 	if filter.FolderID != nil {
-		cond = append(cond, "i.feed_id in (select id from feeds where folder_id = ?)")
-		args = append(args, *filter.FolderID)
+		cond = append(cond, "i.feed_id in (select id from feeds where folder_id = :folder_id)")
+		args = append(args, sql.Named("folder_id", *filter.FolderID))
 	}
 	if filter.FeedID != nil {
-		cond = append(cond, "i.feed_id = ?")
-		args = append(args, *filter.FeedID)
+		cond = append(cond, "i.feed_id = :feed_id")
+		args = append(args, sql.Named("feed_id", *filter.FeedID))
 	}
 	if filter.Status != nil {
-		cond = append(cond, "i.status = ?")
-		args = append(args, *filter.Status)
+		cond = append(cond, "i.status = :status")
+		args = append(args, sql.Named("status", *filter.Status))
 	}
 	if filter.Search != nil {
 		words := strings.Fields(*filter.Search)
@@ -184,38 +193,46 @@ func listQueryPredicate(filter ItemFilter, newestFirst bool) (string, []interfac
 			terms[idx] = word + "*"
 		}
 
-		cond = append(cond, "i.search_rowid in (select rowid from search where search match ?)")
-		args = append(args, strings.Join(terms, " "))
+		cond = append(
+			cond,
+			"i.search_rowid in (select rowid from search where search match :search)",
+		)
+		args = append(args, sql.Named("search", strings.Join(terms, " ")))
 	}
 	if filter.After != nil {
 		compare := ">"
 		if newestFirst {
 			compare = "<"
 		}
-		cond = append(cond, fmt.Sprintf("(i.date, i.id) %s (select date, id from items where id = ?)", compare))
-		args = append(args, *filter.After)
+		cond = append(
+			cond,
+			fmt.Sprintf(
+				"(i.date, i.id) %s (select date, id from items where id = :after_id)",
+				compare,
+			),
+		)
+		args = append(args, sql.Named("after_id", *filter.After))
 	}
 	if filter.IDs != nil && len(*filter.IDs) > 0 {
 		qmarks := make([]string, len(*filter.IDs))
-		idargs := make([]interface{}, len(*filter.IDs))
 		for i, id := range *filter.IDs {
-			qmarks[i] = "?"
-			idargs[i] = id
+			name := fmt.Sprintf("id%d", i)
+			qmarks[i] = ":" + name
+			args = append(args, sql.Named(name, id))
 		}
 		cond = append(cond, "i.id in ("+strings.Join(qmarks, ",")+")")
-		args = append(args, idargs...)
 	}
 	if filter.SinceID != nil {
-		cond = append(cond, "i.id > ?")
-		args = append(args, filter.SinceID)
+		cond = append(cond, "i.id > :since_id")
+		args = append(args, sql.Named("since_id", filter.SinceID))
 	}
 	if filter.MaxID != nil {
-		cond = append(cond, "i.id < ?")
-		args = append(args, filter.MaxID)
+		cond = append(cond, "i.id < :max_id")
+		args = append(args, sql.Named("max_id", filter.MaxID))
 	}
 	if filter.Before != nil {
-		cond = append(cond, "i.date < ?")
-		args = append(args, filter.Before)
+		cond = append(cond, "i.date < :before")
+		args = append(args, sql.Named("before", filter.Before))
 	}
 
 	predicate := "1"
@@ -232,7 +249,7 @@ func (s *Storage) CountItems(filter ItemFilter) int {
 	var count int
 	query := fmt.Sprintf(`
 		select count(*)
-		from items
+		from items i
 		where %s
 		`, predicate)
 	err := s.db.QueryRow(query, args...).Scan(&count)
@@ -243,9 +260,14 @@ func (s *Storage) CountItems(filter ItemFilter) int {
 	return count
 }
 
-func (s *Storage) ListItems(filter ItemFilter, limit int, newestFirst bool, withContent bool) []Item {
+func (s *Storage) ListItems(
+	filter ItemFilter,
+	limit int,
+	newestFirst bool,
+	withContent bool,
+) []Item {
 	predicate, args := listQueryPredicate(filter, newestFirst)
-	result := make([]Item, 0, 0)
+	result := make([]Item, 0)
 
 	order := "date desc, id desc"
 	if !newestFirst {
@@ -299,8 +321,8 @@ func (s *Storage) GetItem(id int64) *Item {
 			i.id, i.guid, i.feed_id, i.title, i.link, i.content,
 			i.date, i.status, i.media_links
 		from items i
-		where i.id = ?
-	`, id).Scan(
+		where i.id = :id
+	`, sql.Named("id", id)).Scan(
 		&i.Id, &i.GUID, &i.FeedId, &i.Title, &i.Link, &i.Content,
 		&i.Date, &i.Status, &i.MediaLinks,
 	)
@@ -312,7 +334,10 @@ func (s *Storage) GetItem(id int64) *Item {
 }
 
 func (s *Storage) UpdateItemStatus(item_id int64, status ItemStatus) bool {
-	_, err := s.db.Exec(`update items set status = ? where id = ?`, status, item_id)
+	_, err := s.db.Exec(`update items set status = :status where id = :id`,
+		sql.Named("status", status),
+		sql.Named("id", item_id),
+	)
 	return err == nil
 }
 
@@ -381,8 +406,9 @@ func (s *Storage) SyncSearch() {
 
 	for _, item := range items {
 		result, err := s.db.Exec(`
-			insert into search (title, description, content) values (?, "", ?)`,
-			item.Title, htmlutil.ExtractText(item.Content),
+			insert into search (title, description, content) values (:title, "", :content)`,
+			sql.Named("title", item.Title),
+			sql.Named("content", htmlutil.ExtractText(item.Content)),
 		)
 		if err != nil {
 			log.Print(err)
@@ -391,8 +417,9 @@ func (s *Storage) SyncSearch() {
 		if numrows, err := result.RowsAffected(); err == nil && numrows == 1 {
 			if rowId, err := result.LastInsertId(); err == nil {
 				s.db.Exec(
-					`update items set search_rowid = ? where id = ?`,
-					rowId, item.Id,
+					`update items set search_rowid = :search_rowid where id = :id`,
+					sql.Named("search_rowid", rowId),
+					sql.Named("id", item.Id),
 				)
 			}
 		}
@@ -408,60 +435,35 @@ var (
 //
 // The rules:
 //   - Never delete starred entries.
-//   - Keep at least the same amount of articles the feed provides (default: 50).
-//     This prevents from deleting items for rarely updated and/or ever-growing
-//     feeds which might eventually reappear as unread.
-//   - Keep entries for a certain period (default: 90 days).
+//   - Keep at least 50 latest items for each feed.
+//   - Delete entries older than 90 days relative to the latest arrived item in the same feed.
 func (s *Storage) DeleteOldItems() {
-	rows, err := s.db.Query(`
-		select
-			i.feed_id,
-			max(coalesce(s.size, 0), ?) as max_items,
-			count(*) as num_items
-		from items i
-		left outer join feed_sizes s on s.feed_id = i.feed_id
-		where status != ?
-		group by i.feed_id
-	`, itemsKeepSize, STARRED)
+	result, err := s.db.Exec(`
+		delete from items
+		where id in (
+			select id
+			from (
+				select
+					id,
+					row_number() over (partition by feed_id order by date desc) as rn,
+					last_arrived,
+					max(last_arrived) over (partition by feed_id) as max_la
+				from items
+				where status != :starred_status
+			)
+			where rn > :keep_size
+			  and last_arrived < datetime(max_la, :keep_days_limit)
+		)`,
+		sql.Named("starred_status", STARRED),
+		sql.Named("keep_size", itemsKeepSize),
+		sql.Named("keep_days_limit", fmt.Sprintf("-%d days", itemsKeepDays)),
+	)
 	if err != nil {
 		log.Print(err)
 		return
 	}
-
-	feedLimits := make(map[int64]int64, 0)
-	for rows.Next() {
-		var feedId, limit int64
-		rows.Scan(&feedId, &limit, nil)
-		feedLimits[feedId] = limit
-	}
-
-	for feedId, limit := range feedLimits {
-		result, err := s.db.Exec(`
-			delete from items
-			where id in (
-				select i.id
-				from items i
-				where i.feed_id = ? and status != ?
-				order by date desc
-				limit -1 offset ?
-			) and date_arrived < ?
-			`,
-			feedId,
-			STARRED,
-			limit,
-			time.Now().UTC().Add(-time.Hour*time.Duration(24*itemsKeepDays)),
-		)
-		if err != nil {
-			log.Print(err)
-			return
-		}
-		numDeleted, err := result.RowsAffected()
-		if err != nil {
-			log.Print(err)
-			return
-		}
-		if numDeleted > 0 {
-			log.Printf("Deleted %d old items (feed: %d)", numDeleted, feedId)
-		}
+	numDeleted, err := result.RowsAffected()
+	if err == nil && numDeleted > 0 {
+		log.Printf("Deleted %d old items", numDeleted)
 	}
 }

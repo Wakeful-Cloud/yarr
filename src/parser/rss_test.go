@@ -216,7 +216,7 @@ func TestRSSTitleHTMLTags(t *testing.T) {
 	`))
 	have := []string{feed.Items[0].Title, feed.Items[1].Title}
 	want := []string{"title in p", "very strong title"}
-	for i := 0; i < len(want); i++ {
+	for i := range want {
 		if want[i] != have[i] {
 			t.Errorf("title doesn't match\nwant: %#v\nhave: %#v\n", want[i], have[i])
 		}
@@ -241,7 +241,7 @@ func TestRSSIsPermalink(t *testing.T) {
 			URL:  "http://example.com/posts/1",
 		},
 	}
-	for i := 0; i < len(want); i++ {
+	for i := range want {
 		if !reflect.DeepEqual(want, have) {
 			t.Errorf("Failed to handle isPermalink\nwant: %#v\nhave: %#v\n", want[i], have[i])
 		}
@@ -303,9 +303,21 @@ func TestRSSMultipleMedia(t *testing.T) {
 			GUID: "http://example.com/posts/1",
 			URL:  "http://example.com/posts/1",
 			MediaLinks: []MediaLink{
-				{URL: "https://example.com/path/to/image1.png", Type: "image", Description: "description 1"},
-				{URL: "https://example.com/path/to/image2.png", Type: "image", Description: "description 2"},
-				{URL: "https://example.com/path/to/video1.mp4", Type: "video", Description: "video description"},
+				{
+					URL:         "https://example.com/path/to/image1.png",
+					Type:        "image",
+					Description: "description 1",
+				},
+				{
+					URL:         "https://example.com/path/to/image2.png",
+					Type:        "image",
+					Description: "description 2",
+				},
+				{
+					URL:         "https://example.com/path/to/video1.mp4",
+					Type:        "video",
+					Description: "video description",
+				},
 			},
 		},
 	}

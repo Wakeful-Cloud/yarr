@@ -34,23 +34,6 @@ type mediaDescription struct {
 	Text string `xml:",chardata"`
 }
 
-func (m *media) firstMediaThumbnail() string {
-	for _, c := range m.MediaContents {
-		for _, t := range c.MediaThumbnails {
-			return t.URL
-		}
-	}
-	for _, t := range m.MediaThumbnails {
-		return t.URL
-	}
-	for _, g := range m.MediaGroups {
-		for _, t := range g.MediaThumbnails {
-			return t.URL
-		}
-	}
-	return ""
-}
-
 func (m *media) firstMediaDescription() string {
 	for _, d := range m.MediaDescriptions {
 		return plain2html(d.Text)
@@ -87,7 +70,10 @@ func (m *media) mediaLinks() []MediaLink {
 			} else if strings.HasPrefix(content.MediaType, "video/") {
 				links = append(links, MediaLink{URL: url, Type: "video", Description: description})
 			} else if content.MediaMedium == "image" || content.MediaMedium == "audio" || content.MediaMedium == "video" {
-				links = append(links, MediaLink{URL: url, Type: content.MediaMedium, Description: description})
+				links = append(
+					links,
+					MediaLink{URL: url, Type: content.MediaMedium, Description: description},
+				)
 			} else {
 				if len(content.MediaThumbnails) > 0 {
 					links = append(links, MediaLink{

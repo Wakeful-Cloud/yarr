@@ -64,7 +64,7 @@ func (s *Server) handler() http.Handler {
 }
 
 func (s *Server) handleIndex(c *router.Context) {
-	c.HTML(http.StatusOK, assets.Template("index.html"), map[string]interface{}{
+	c.HTML(http.StatusOK, assets.Template("index.html"), map[string]any{
 		"settings":      s.db.GetSettings(),
 		"authenticated": s.Username != "" && s.Password != "",
 	})
@@ -77,18 +77,19 @@ func (s *Server) handleStatic(c *router.Context) {
 		c.Out.WriteHeader(http.StatusNotFound)
 		return
 	}
-	http.StripPrefix(s.BasePath+"/static/", http.FileServer(http.FS(assets.FS))).ServeHTTP(c.Out, c.Req)
+	http.StripPrefix(s.BasePath+"/static/", http.FileServer(http.FS(assets.FS))).
+		ServeHTTP(c.Out, c.Req)
 }
 
 func (s *Server) handleManifest(c *router.Context) {
-	c.JSON(http.StatusOK, map[string]interface{}{
+	c.JSON(http.StatusOK, map[string]any{
 		"$schema":     "https://json.schemastore.org/web-manifest-combined.json",
 		"name":        "yarr!",
 		"short_name":  "yarr",
 		"description": "yet another rss reader",
 		"display":     "standalone",
 		"start_url":   "/" + strings.TrimPrefix(s.BasePath, "/"),
-		"icons": []map[string]interface{}{
+		"icons": []map[string]any{
 			{
 				"src":   s.BasePath + "/static/graphicarts/favicon.png",
 				"sizes": "64x64",
@@ -99,7 +100,7 @@ func (s *Server) handleManifest(c *router.Context) {
 }
 
 func (s *Server) handleStatus(c *router.Context) {
-	c.JSON(http.StatusOK, map[string]interface{}{
+	c.JSON(http.StatusOK, map[string]any{
 		"running": s.worker.FeedsPending(),
 		"stats":   s.db.FeedStats(),
 	})
@@ -236,7 +237,10 @@ func (s *Server) handleFeedList(c *router.Context) {
 			log.Printf("Faild to discover feed for %s: %s", form.Url, err)
 			c.JSON(http.StatusOK, map[string]string{"status": "notfound"})
 		case len(result.Sources) > 0:
-			c.JSON(http.StatusOK, map[string]interface{}{"status": "multiple", "choice": result.Sources})
+			c.JSON(
+				http.StatusOK,
+				map[string]any{"status": "multiple", "choice": result.Sources},
+			)
 		case result.Feed != nil:
 			feed := s.db.CreateFeed(
 				result.Feed.Title,
@@ -248,12 +252,11 @@ func (s *Server) handleFeedList(c *router.Context) {
 			items := worker.ConvertItems(result.Feed.Items, *feed)
 			if len(items) > 0 {
 				s.db.CreateItems(items)
-				s.db.SetFeedSize(feed.Id, len(items))
 				s.db.SyncSearch()
 			}
 			s.worker.FindFeedFavicon(*feed)
 
-			c.JSON(http.StatusOK, map[string]interface{}{
+			c.JSON(http.StatusOK, map[string]any{
 				"status": "success",
 				"feed":   feed,
 			})
@@ -275,7 +278,7 @@ func (s *Server) handleFeed(c *router.Context) {
 			c.Out.WriteHeader(http.StatusBadRequest)
 			return
 		}
-		body := make(map[string]interface{})
+		body := make(map[string]any)
 		if err := json.NewDecoder(c.Req.Body).Decode(&body); err != nil {
 			log.Print(err)
 			c.Out.WriteHeader(http.StatusBadRequest)
@@ -387,7 +390,7 @@ func (s *Server) handleItemList(c *router.Context) {
 				items[i].Title = htmlutil.TruncateText(text, 140)
 			}
 		}
-		c.JSON(http.StatusOK, map[string]interface{}{
+		c.JSON(http.StatusOK, map[string]any{
 			"list":     items,
 			"has_more": hasMore,
 		})
@@ -411,7 +414,7 @@ func (s *Server) handleSettings(c *router.Context) {
 	if c.Req.Method == "GET" {
 		c.JSON(http.StatusOK, s.db.GetSettings())
 	} else if c.Req.Method == "PUT" {
-		settings := make(map[string]interface{})
+		settings := make(map[string]any)
 		if err := json.NewDecoder(c.Req.Body).Decode(&settings); err != nil {
 			c.Out.WriteHeader(http.StatusBadRequest)
 			return
@@ -468,7 +471,6 @@ func (s *Server) handleOPMLExport(c *router.Context) {
 
 		feedsByFolderID := make(map[int64][]*storage.Feed)
 		for _, feed := range s.db.ListFeeds() {
-			feed := feed
 			if feed.FolderId == nil {
 				doc.Feeds = append(doc.Feeds, opml.Feed{
 					Title:   feed.Title,
