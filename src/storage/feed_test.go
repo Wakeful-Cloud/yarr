@@ -54,9 +54,12 @@ func TestUpdateFeed(t *testing.T) {
 	folder := db.CreateFolder("test")
 	icon := []byte("icon")
 
-	db.RenameFeed(feed1.Id, "newtitle")
-	db.UpdateFeedFolder(feed1.Id, &folder.Id)
-	db.UpdateFeedIcon(feed1.Id, &icon)
+	title := "newtitle"
+	db.UpdateFeed(feed1.Id, UpdateFeedParams{
+		Title:    &title,
+		FolderID: SetNullable(&folder.Id),
+		Icon:     SetNullable(&icon),
+	})
 
 	feed2 := db.GetFeed(feed1.Id)
 	if feed2.Title != "newtitle" {

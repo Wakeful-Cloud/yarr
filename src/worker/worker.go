@@ -53,7 +53,7 @@ func (w *Worker) FindFeedFavicon(feed storage.Feed) {
 		log.Printf("Failed to find favicon for %s (%s): %s", feed.FeedLink, feed.Link, err)
 	}
 	if icon != nil {
-		w.db.UpdateFeedIcon(feed.Id, icon)
+		w.db.UpdateFeed(feed.Id, storage.UpdateFeedParams{Icon: storage.SetNullable(icon)})
 	}
 }
 

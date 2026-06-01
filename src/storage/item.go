@@ -243,16 +243,9 @@ func listQueryPredicate(filter ItemFilter, newestFirst bool) (string, []any) {
 	return predicate, args
 }
 
-func (s *Storage) CountItems(filter ItemFilter) int {
-	predicate, args := listQueryPredicate(filter, false)
-
+func (s *Storage) CountItems() int {
 	var count int
-	query := fmt.Sprintf(`
-		select count(*)
-		from items i
-		where %s
-		`, predicate)
-	err := s.db.QueryRow(query, args...).Scan(&count)
+	err := s.db.QueryRow(`select count(*) from items`).Scan(&count)
 	if err != nil {
 		log.Print(err)
 		return 0

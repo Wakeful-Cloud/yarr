@@ -284,24 +284,28 @@ func (s *Server) handleFeed(c *router.Context) {
 			c.Out.WriteHeader(http.StatusBadRequest)
 			return
 		}
+		params := storage.UpdateFeedParams{}
 		if title, ok := body["title"]; ok {
 			if reflect.TypeOf(title).Kind() == reflect.String {
-				s.db.RenameFeed(id, title.(string))
+				t := title.(string)
+				params.Title = &t
 			}
 		}
 		if f_id, ok := body["folder_id"]; ok {
 			if f_id == nil {
-				s.db.UpdateFeedFolder(id, nil)
+				params.FolderID = storage.SetNullable[int64](nil)
 			} else if reflect.TypeOf(f_id).Kind() == reflect.Float64 {
 				folderId := int64(f_id.(float64))
-				s.db.UpdateFeedFolder(id, &folderId)
+				params.FolderID = storage.SetNullable(&folderId)
 			}
 		}
 		if link, ok := body["feed_link"]; ok {
 			if reflect.TypeOf(link).Kind() == reflect.String {
-				s.db.UpdateFeedLink(id, link.(string))
+				l := link.(string)
+				params.FeedLink = &l
 			}
 		}
+		s.db.UpdateFeed(id, params)
 		c.Out.WriteHeader(http.StatusOK)
 	} else if c.Req.Method == "DELETE" {
 		s.db.DeleteFeed(id)

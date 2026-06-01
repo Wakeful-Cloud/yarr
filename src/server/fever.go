@@ -278,7 +278,7 @@ func (s *Server) feverItemsHandler(c *router.Context) {
 		}
 	}
 
-	totalItems := s.db.CountItems(storage.ItemFilter{})
+	totalItems := s.db.CountItems()
 
 	writeFeverJSON(c, map[string]any{
 		"items":       feverItems,

@@ -338,7 +338,8 @@ func TestDeleteOldItems(t *testing.T) {
 		db.db.Exec(`update items set last_arrived = :la where guid != "99"`, sql.Named("la", now.Add(-time.Hour*24*100)))
 
 		db.DeleteOldItems()
-		have := db.CountItems(ItemFilter{FeedID: &feed.Id})
+		var have int
+		db.db.QueryRow("select count(*) from items where feed_id = ?", feed.Id).Scan(&have)
 		if have != 50 {
 			t.Errorf("expected 50 items, have %d", have)
 		}
@@ -359,7 +360,8 @@ func TestDeleteOldItems(t *testing.T) {
 		db.db.Exec(`update items set last_arrived = :la where guid != "99"`, sql.Named("la", now.Add(-time.Hour*24*80)))
 
 		db.DeleteOldItems()
-		have := db.CountItems(ItemFilter{FeedID: &feed.Id})
+		var have int
+		db.db.QueryRow("select count(*) from items where feed_id = ?", feed.Id).Scan(&have)
 		if have != 100 {
 			t.Errorf("expected 100 items, have %d", have)
 		}
@@ -381,7 +383,8 @@ func TestDeleteOldItems(t *testing.T) {
 		db.db.Exec(`update items set status = :s where cast(guid as integer) < 10`, sql.Named("s", starred))
 
 		db.DeleteOldItems()
-		have := db.CountItems(ItemFilter{FeedID: &feed.Id})
+		var have int
+		db.db.QueryRow("select count(*) from items where feed_id = ?", feed.Id).Scan(&have)
 		// 50 (limit) + 10 (starred) = 60 items should remain.
 		if have != 60 {
 			t.Errorf("expected 60 items, have %d", have)

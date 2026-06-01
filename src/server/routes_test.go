@@ -80,7 +80,7 @@ func TestFeedIcons(t *testing.T) {
 	db, _ := storage.New(":memory:")
 	icon := []byte("test")
 	feed := db.CreateFeed("", "", "", "", nil)
-	db.UpdateFeedIcon(feed.Id, &icon)
+	db.UpdateFeed(feed.Id, storage.UpdateFeedParams{Icon: storage.SetNullable(&icon)})
 	log.SetOutput(os.Stderr)
 
 	recorder := httptest.NewRecorder()
