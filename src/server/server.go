@@ -14,7 +14,7 @@ import (
 
 type Server struct {
 	Addr        string
-	db          *storage.Storage
+	db          storage.Storage
 	worker      *worker.Worker
 	cache       map[string]any
 	cache_mutex *sync.Mutex
@@ -29,7 +29,7 @@ type Server struct {
 	KeyFile  string
 }
 
-func NewServer(db *storage.Storage, addr string) *Server {
+func NewServer(db storage.Storage, addr string) *Server {
 	return &Server{
 		db:          db,
 		Addr:        addr,
@@ -48,8 +48,7 @@ func (h *Server) GetAddr() string {
 }
 
 func (s *Server) Start() {
-	refreshRate := s.db.GetSettingsValueInt64("refresh_rate")
-	s.worker.FindFavicons()
+	refreshRate := s.db.GetSettings().RefreshRate
 	s.worker.StartFeedCleaner()
 	s.worker.SetRefreshRate(refreshRate)
 	if refreshRate > 0 {

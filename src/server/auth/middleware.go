@@ -14,7 +14,7 @@ type Middleware struct {
 	Password string
 	BasePath string
 	Public   []string
-	DB       *storage.Storage
+	DB       storage.Storage
 }
 
 func (m *Middleware) Handler(c *router.Context) {
@@ -46,13 +46,14 @@ func (m *Middleware) Handler(c *router.Context) {
 		} else {
 			c.HTML(http.StatusOK, assets.Template("login.html"), map[string]any{
 				"username": username,
-				"error":    "Invalid username/password",
-				"settings": m.DB.GetSettings(),
+				"hasError": true,
+				"settings": m.DB.GetSettings().Map(),
 			})
 			return
 		}
 	}
 	c.HTML(http.StatusOK, assets.Template("login.html"), map[string]any{
-		"settings": m.DB.GetSettings(),
+		"hasError": false,
+		"settings": m.DB.GetSettings().Map(),
 	})
 }

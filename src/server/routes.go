@@ -10,6 +10,7 @@ import (
 	"reflect"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/nkanaev/yarr/src/assets"
 	"github.com/nkanaev/yarr/src/content/htmlutil"
@@ -20,7 +21,7 @@ import (
 	"github.com/nkanaev/yarr/src/server/gzip"
 	"github.com/nkanaev/yarr/src/server/opml"
 	"github.com/nkanaev/yarr/src/server/router"
-	"github.com/nkanaev/yarr/src/storage"
+	"github.com/nkanaev/yarr/src/storage/model"
 	"github.com/nkanaev/yarr/src/worker"
 )
 
@@ -65,7 +66,7 @@ func (s *Server) handler() http.Handler {
 
 func (s *Server) handleIndex(c *router.Context) {
 	c.HTML(http.StatusOK, assets.Template("index.html"), map[string]any{
-		"settings":      s.db.GetSettings(),
+		"settings":      s.db.GetSettings().Map(),
 		"authenticated": s.Username != "" && s.Password != "",
 	})
 }
@@ -141,12 +142,10 @@ func (s *Server) handleFolder(c *router.Context) {
 			c.Out.WriteHeader(http.StatusBadRequest)
 			return
 		}
-		if body.Title != nil {
-			s.db.RenameFolder(id, *body.Title)
-		}
-		if body.IsExpanded != nil {
-			s.db.ToggleFolderExpanded(id, *body.IsExpanded)
-		}
+		s.db.UpdateFolder(id, model.UpdateFolderParams{
+			Title:      body.Title,
+			IsExpanded: body.IsExpanded,
+		})
 		c.Out.WriteHeader(http.StatusOK)
 	} else if c.Req.Method == "DELETE" {
 		s.db.DeleteFolder(id)
@@ -164,7 +163,15 @@ func (s *Server) handleFeedRefresh(c *router.Context) {
 }
 
 func (s *Server) handleFeedErrors(c *router.Context) {
-	errors := s.db.GetFeedErrors()
+	errors := make(map[int64]string)
+	states, err := s.db.ListFeedStates()
+	if err == nil {
+		for _, state := range states {
+			if state.LastError != "" {
+				errors[state.FeedID] = state.LastError
+			}
+		}
+	}
 	c.JSON(http.StatusOK, errors)
 }
 
@@ -242,17 +249,15 @@ func (s *Server) handleFeedList(c *router.Context) {
 				map[string]any{"status": "multiple", "choice": result.Sources},
 			)
 		case result.Feed != nil:
-			feed := s.db.CreateFeed(
-				result.Feed.Title,
-				"",
-				result.Feed.SiteURL,
-				result.FeedLink,
-				form.FolderID,
-			)
+			feed := s.db.CreateFeed(model.CreateFeedParams{
+				Title:    result.Feed.Title,
+				Link:     result.Feed.SiteURL,
+				FeedLink: result.FeedLink,
+				FolderID: form.FolderID,
+			})
 			items := worker.ConvertItems(result.Feed.Items, *feed)
 			if len(items) > 0 {
 				s.db.CreateItems(items)
-				s.db.SyncSearch()
 			}
 			s.worker.FindFeedFavicon(*feed)
 
@@ -284,7 +289,7 @@ func (s *Server) handleFeed(c *router.Context) {
 			c.Out.WriteHeader(http.StatusBadRequest)
 			return
 		}
-		params := storage.UpdateFeedParams{}
+		params := model.UpdateFeedParams{}
 		if title, ok := body["title"]; ok {
 			if reflect.TypeOf(title).Kind() == reflect.String {
 				t := title.(string)
@@ -293,10 +298,10 @@ func (s *Server) handleFeed(c *router.Context) {
 		}
 		if f_id, ok := body["folder_id"]; ok {
 			if f_id == nil {
-				params.FolderID = storage.SetNullable[int64](nil)
+				params.FolderID = model.SetNullable[int64](nil)
 			} else if reflect.TypeOf(f_id).Kind() == reflect.Float64 {
 				folderId := int64(f_id.(float64))
-				params.FolderID = storage.SetNullable(&folderId)
+				params.FolderID = model.SetNullable(&folderId)
 			}
 		}
 		if link, ok := body["feed_link"]; ok {
@@ -362,7 +367,7 @@ func (s *Server) handleItemList(c *router.Context) {
 		perPage := 20
 		query := c.Req.URL.Query()
 
-		filter := storage.ItemFilter{}
+		filter := model.ItemFilter{}
 		if folderID, err := c.QueryInt64("folder_id"); err == nil {
 			filter.FolderID = &folderID
 		}
@@ -373,7 +378,7 @@ func (s *Server) handleItemList(c *router.Context) {
 			filter.After = &after
 		}
 		if status := query.Get("status"); len(status) != 0 {
-			statusValue := storage.StatusValues[status]
+			statusValue := model.StatusValues[status]
 			filter.Status = &statusValue
 		}
 		if search := query.Get("search"); len(search) != 0 {
@@ -399,7 +404,7 @@ func (s *Server) handleItemList(c *router.Context) {
 			"has_more": hasMore,
 		})
 	} else if c.Req.Method == "PUT" {
-		filter := storage.MarkFilter{}
+		filter := model.MarkFilter{}
 
 		if folderID, err := c.QueryInt64("folder_id"); err == nil {
 			filter.FolderID = &folderID
@@ -418,14 +423,14 @@ func (s *Server) handleSettings(c *router.Context) {
 	if c.Req.Method == "GET" {
 		c.JSON(http.StatusOK, s.db.GetSettings())
 	} else if c.Req.Method == "PUT" {
-		settings := make(map[string]any)
-		if err := json.NewDecoder(c.Req.Body).Decode(&settings); err != nil {
+		var params model.UpdateSettingsParams
+		if err := json.NewDecoder(c.Req.Body).Decode(&params); err != nil {
 			c.Out.WriteHeader(http.StatusBadRequest)
 			return
 		}
-		if s.db.UpdateSettings(settings) {
-			if _, ok := settings["refresh_rate"]; ok {
-				s.worker.SetRefreshRate(s.db.GetSettingsValueInt64("refresh_rate"))
+		if s.db.UpdateSettings(params) {
+			if params.RefreshRate != nil {
+				s.worker.SetRefreshRate(s.db.GetSettings().RefreshRate)
 			}
 			c.Out.WriteHeader(http.StatusOK)
 		} else {
@@ -448,16 +453,24 @@ func (s *Server) handleOPMLImport(c *router.Context) {
 			return
 		}
 		for _, f := range doc.Feeds {
-			s.db.CreateFeed(f.Title, "", f.SiteUrl, f.FeedUrl, nil)
+			s.db.CreateFeed(model.CreateFeedParams{
+				Title:    f.Title,
+				Link:     f.SiteUrl,
+				FeedLink: f.FeedUrl,
+			})
 		}
 		for _, f := range doc.Folders {
 			folder := s.db.CreateFolder(f.Title)
 			for _, ff := range f.AllFeeds() {
-				s.db.CreateFeed(ff.Title, "", ff.SiteUrl, ff.FeedUrl, &folder.Id)
+				s.db.CreateFeed(model.CreateFeedParams{
+					Title:    ff.Title,
+					Link:     ff.SiteUrl,
+					FeedLink: ff.FeedUrl,
+					FolderID: &folder.Id,
+				})
 			}
 		}
 
-		s.worker.FindFavicons()
 		s.worker.RefreshFeeds()
 
 		c.Out.WriteHeader(http.StatusOK)
@@ -468,12 +481,13 @@ func (s *Server) handleOPMLImport(c *router.Context) {
 
 func (s *Server) handleOPMLExport(c *router.Context) {
 	if c.Req.Method == "GET" {
+		filename := fmt.Sprintf("subscriptions_%s.opml", time.Now().Format("2006-01-02_15-04-05"))
 		c.Out.Header().Set("Content-Type", "application/xml; charset=utf-8")
-		c.Out.Header().Set("Content-Disposition", `attachment; filename="subscriptions.opml"`)
+		c.Out.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, filename))
 
 		doc := opml.Folder{}
 
-		feedsByFolderID := make(map[int64][]*storage.Feed)
+		feedsByFolderID := make(map[int64][]*model.Feed)
 		for _, feed := range s.db.ListFeeds() {
 			if feed.FolderId == nil {
 				doc.Feeds = append(doc.Feeds, opml.Feed{

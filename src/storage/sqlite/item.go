@@ -1,58 +1,20 @@
-package storage
+package sqlite
 
 import (
+	"cmp"
 	"database/sql"
 	"database/sql/driver"
 	"encoding/json"
 	"fmt"
 	"log"
-	"sort"
+	"slices"
 	"strings"
 	"time"
 
-	"github.com/nkanaev/yarr/src/content/htmlutil"
+	"github.com/nkanaev/yarr/src/storage/model"
 )
 
-type ItemStatus int
-
-const (
-	UNREAD  ItemStatus = 0
-	READ    ItemStatus = 1
-	STARRED ItemStatus = 2
-)
-
-var StatusRepresentations = map[ItemStatus]string{
-	UNREAD:  "unread",
-	READ:    "read",
-	STARRED: "starred",
-}
-
-var StatusValues = map[string]ItemStatus{
-	"unread":  UNREAD,
-	"read":    READ,
-	"starred": STARRED,
-}
-
-func (s ItemStatus) MarshalJSON() ([]byte, error) {
-	return json.Marshal(StatusRepresentations[s])
-}
-
-func (s *ItemStatus) UnmarshalJSON(b []byte) error {
-	var str string
-	if err := json.Unmarshal(b, &str); err != nil {
-		return err
-	}
-	*s = StatusValues[str]
-	return nil
-}
-
-type MediaLink struct {
-	URL         string `json:"url"`
-	Type        string `json:"type"`
-	Description string `json:"description,omitempty"`
-}
-
-type MediaLinks []MediaLink
+type MediaLinks model.MediaLinks
 
 func (m *MediaLinks) Scan(src any) error {
 	switch data := src.(type) {
@@ -69,56 +31,7 @@ func (m MediaLinks) Value() (driver.Value, error) {
 	return json.Marshal(m)
 }
 
-type Item struct {
-	Id         int64      `json:"id"`
-	GUID       string     `json:"guid"`
-	FeedId     int64      `json:"feed_id"`
-	Title      string     `json:"title"`
-	Link       string     `json:"link"`
-	Content    string     `json:"content,omitempty"`
-	Date       time.Time  `json:"date"`
-	Status     ItemStatus `json:"status"`
-	MediaLinks MediaLinks `json:"media_links"`
-}
-
-type ItemFilter struct {
-	FolderID *int64
-	FeedID   *int64
-	Status   *ItemStatus
-	Search   *string
-	After    *int64
-	IDs      *[]int64
-	SinceID  *int64
-	MaxID    *int64
-	Before   *time.Time
-}
-
-type MarkFilter struct {
-	FolderID *int64
-	FeedID   *int64
-
-	Before *time.Time
-}
-
-type ItemList []Item
-
-func (list ItemList) Len() int {
-	return len(list)
-}
-
-func (list ItemList) SortKey(i int) string {
-	return list[i].Date.Format(time.RFC3339) + "::" + list[i].GUID
-}
-
-func (list ItemList) Less(i, j int) bool {
-	return list.SortKey(i) < list.SortKey(j)
-}
-
-func (list ItemList) Swap(i, j int) {
-	list[i], list[j] = list[j], list[i]
-}
-
-func (s *Storage) CreateItems(items []Item) bool {
+func (s *SQLiteStorage) CreateItems(items []model.Item) bool {
 	tx, err := s.db.Begin()
 	if err != nil {
 		log.Print(err)
@@ -127,10 +40,13 @@ func (s *Storage) CreateItems(items []Item) bool {
 
 	now := time.Now().UTC()
 
-	itemsSorted := ItemList(items)
-	sort.Sort(itemsSorted)
+	slices.SortStableFunc(items, func(a, b model.Item) int {
+		sa := a.Date.Format(time.RFC3339) + "::" + a.GUID
+		sb := b.Date.Format(time.RFC3339) + "::" + b.GUID
+		return cmp.Compare(sa, sb)
+	})
 
-	for _, item := range itemsSorted {
+	for _, item := range items {
 		_, err = tx.Exec(`
 			insert into items (
 				guid, feed_id, title, link, date,
@@ -150,10 +66,10 @@ func (s *Storage) CreateItems(items []Item) bool {
 			sql.Named("link", item.Link),
 			sql.Named("date", item.Date),
 			sql.Named("content", item.Content),
-			sql.Named("media_links", item.MediaLinks),
+			sql.Named("media_links", MediaLinks(item.MediaLinks)),
 			sql.Named("date_arrived", now),
 			sql.Named("last_arrived", now),
-			sql.Named("status", UNREAD),
+			sql.Named("status", item.Status),
 		)
 		if err != nil {
 			log.Print(err)
@@ -171,7 +87,7 @@ func (s *Storage) CreateItems(items []Item) bool {
 	return true
 }
 
-func listQueryPredicate(filter ItemFilter, newestFirst bool) (string, []any) {
+func listQueryPredicate(filter model.ItemFilter, newestFirst bool) (string, []any) {
 	cond := make([]string, 0)
 	args := make([]any, 0)
 	if filter.FolderID != nil {
@@ -195,7 +111,7 @@ func listQueryPredicate(filter ItemFilter, newestFirst bool) (string, []any) {
 
 		cond = append(
 			cond,
-			"i.search_rowid in (select rowid from search where search match :search)",
+			"i.id in (select rowid as id from search where search match :search)",
 		)
 		args = append(args, sql.Named("search", strings.Join(terms, " ")))
 	}
@@ -243,7 +159,7 @@ func listQueryPredicate(filter ItemFilter, newestFirst bool) (string, []any) {
 	return predicate, args
 }
 
-func (s *Storage) CountItems() int {
+func (s *SQLiteStorage) CountItems() int {
 	var count int
 	err := s.db.QueryRow(`select count(*) from items`).Scan(&count)
 	if err != nil {
@@ -253,14 +169,14 @@ func (s *Storage) CountItems() int {
 	return count
 }
 
-func (s *Storage) ListItems(
-	filter ItemFilter,
+func (s *SQLiteStorage) ListItems(
+	filter model.ItemFilter,
 	limit int,
 	newestFirst bool,
 	withContent bool,
-) []Item {
+) []model.Item {
 	predicate, args := listQueryPredicate(filter, newestFirst)
-	result := make([]Item, 0)
+	result := make([]model.Item, 0)
 
 	order := "date desc, id desc"
 	if !newestFirst {
@@ -292,11 +208,11 @@ func (s *Storage) ListItems(
 		return result
 	}
 	for rows.Next() {
-		var x Item
+		var x model.Item
 		err = rows.Scan(
 			&x.Id, &x.GUID, &x.FeedId,
 			&x.Title, &x.Link, &x.Date,
-			&x.Status, &x.MediaLinks, &x.Content,
+			&x.Status, (*MediaLinks)(&x.MediaLinks), &x.Content,
 		)
 		if err != nil {
 			log.Print(err)
@@ -307,8 +223,8 @@ func (s *Storage) ListItems(
 	return result
 }
 
-func (s *Storage) GetItem(id int64) *Item {
-	i := &Item{}
+func (s *SQLiteStorage) GetItem(id int64) *model.Item {
+	i := &model.Item{}
 	err := s.db.QueryRow(`
 		select
 			i.id, i.guid, i.feed_id, i.title, i.link, i.content,
@@ -317,7 +233,7 @@ func (s *Storage) GetItem(id int64) *Item {
 		where i.id = :id
 	`, sql.Named("id", id)).Scan(
 		&i.Id, &i.GUID, &i.FeedId, &i.Title, &i.Link, &i.Content,
-		&i.Date, &i.Status, &i.MediaLinks,
+		&i.Date, &i.Status, (*MediaLinks)(&i.MediaLinks),
 	)
 	if err != nil {
 		log.Print(err)
@@ -326,7 +242,36 @@ func (s *Storage) GetItem(id int64) *Item {
 	return i
 }
 
-func (s *Storage) UpdateItemStatus(item_id int64, status ItemStatus) bool {
+func (s *SQLiteStorage) UpdateItem(id int64, params model.UpdateItemParams) bool {
+	sets := make([]string, 0)
+	args := make([]any, 0)
+	if params.Title != nil {
+		sets = append(sets, "title = :title")
+		args = append(args, sql.Named("title", *params.Title))
+	}
+	if params.Status != nil {
+		sets = append(sets, "status = :status")
+		args = append(args, sql.Named("status", *params.Status))
+	}
+	if params.LastArrived != nil {
+		sets = append(sets, "last_arrived = :last_arrived")
+		args = append(args, sql.Named("last_arrived", *params.LastArrived))
+	}
+	if len(sets) == 0 {
+		return true
+	}
+	args = append(args, sql.Named("id", id))
+	query := fmt.Sprintf("update items set %s where id = :id", strings.Join(sets, ", "))
+	_, err := s.db.Exec(query, args...)
+	return err == nil
+}
+
+func (s *SQLiteStorage) DeleteItem(id int64) bool {
+	_, err := s.db.Exec(`delete from items where id = :id`, sql.Named("id", id))
+	return err == nil
+}
+
+func (s *SQLiteStorage) UpdateItemStatus(item_id int64, status model.ItemStatus) bool {
 	_, err := s.db.Exec(`update items set status = :status where id = :id`,
 		sql.Named("status", status),
 		sql.Named("id", item_id),
@@ -334,8 +279,8 @@ func (s *Storage) UpdateItemStatus(item_id int64, status ItemStatus) bool {
 	return err == nil
 }
 
-func (s *Storage) MarkItemsRead(filter MarkFilter) bool {
-	predicate, args := listQueryPredicate(ItemFilter{
+func (s *SQLiteStorage) MarkItemsRead(filter model.MarkFilter) bool {
+	predicate, args := listQueryPredicate(model.ItemFilter{
 		FolderID: filter.FolderID,
 		FeedID:   filter.FeedID,
 		Before:   filter.Before,
@@ -343,7 +288,7 @@ func (s *Storage) MarkItemsRead(filter MarkFilter) bool {
 	query := fmt.Sprintf(`
 		update items as i set status = %d
 		where %s and i.status != %d
-		`, READ, predicate, STARRED)
+		`, model.READ, predicate, model.STARRED)
 	_, err := s.db.Exec(query, args...)
 	if err != nil {
 		log.Print(err)
@@ -351,14 +296,8 @@ func (s *Storage) MarkItemsRead(filter MarkFilter) bool {
 	return err == nil
 }
 
-type FeedStat struct {
-	FeedId       int64 `json:"feed_id"`
-	UnreadCount  int64 `json:"unread"`
-	StarredCount int64 `json:"starred"`
-}
-
-func (s *Storage) FeedStats() []FeedStat {
-	result := make([]FeedStat, 0)
+func (s *SQLiteStorage) FeedStats() []model.FeedStat {
+	result := make([]model.FeedStat, 0)
 	rows, err := s.db.Query(fmt.Sprintf(`
 		select
 			feed_id,
@@ -366,57 +305,17 @@ func (s *Storage) FeedStats() []FeedStat {
 			sum(case status when %d then 1 else 0 end)
 		from items
 		group by feed_id
-	`, UNREAD, STARRED))
+	`, model.UNREAD, model.STARRED))
 	if err != nil {
 		log.Print(err)
 		return result
 	}
 	for rows.Next() {
-		stat := FeedStat{}
+		stat := model.FeedStat{}
 		rows.Scan(&stat.FeedId, &stat.UnreadCount, &stat.StarredCount)
 		result = append(result, stat)
 	}
 	return result
-}
-
-func (s *Storage) SyncSearch() {
-	rows, err := s.db.Query(`
-		select id, title, content
-		from items
-		where search_rowid is null;
-	`)
-	if err != nil {
-		log.Print(err)
-		return
-	}
-
-	items := make([]Item, 0)
-	for rows.Next() {
-		var item Item
-		rows.Scan(&item.Id, &item.Title, &item.Content)
-		items = append(items, item)
-	}
-
-	for _, item := range items {
-		result, err := s.db.Exec(`
-			insert into search (title, description, content) values (:title, "", :content)`,
-			sql.Named("title", item.Title),
-			sql.Named("content", htmlutil.ExtractText(item.Content)),
-		)
-		if err != nil {
-			log.Print(err)
-			return
-		}
-		if numrows, err := result.RowsAffected(); err == nil && numrows == 1 {
-			if rowId, err := result.LastInsertId(); err == nil {
-				s.db.Exec(
-					`update items set search_rowid = :search_rowid where id = :id`,
-					sql.Named("search_rowid", rowId),
-					sql.Named("id", item.Id),
-				)
-			}
-		}
-	}
 }
 
 var (
@@ -430,7 +329,7 @@ var (
 //   - Never delete starred entries.
 //   - Keep at least 50 latest items for each feed.
 //   - Delete entries older than 90 days relative to the latest arrived item in the same feed.
-func (s *Storage) DeleteOldItems() {
+func (s *SQLiteStorage) DeleteOldItems() {
 	result, err := s.db.Exec(`
 		delete from items
 		where id in (
@@ -447,7 +346,7 @@ func (s *Storage) DeleteOldItems() {
 			where rn > :keep_size
 			  and last_arrived < datetime(max_la, :keep_days_limit)
 		)`,
-		sql.Named("starred_status", STARRED),
+		sql.Named("starred_status", model.STARRED),
 		sql.Named("keep_size", itemsKeepSize),
 		sql.Named("keep_days_limit", fmt.Sprintf("-%d days", itemsKeepDays)),
 	)
@@ -458,5 +357,9 @@ func (s *Storage) DeleteOldItems() {
 	numDeleted, err := result.RowsAffected()
 	if err == nil && numDeleted > 0 {
 		log.Printf("Deleted %d old items", numDeleted)
+
+		if _, err := s.db.Exec("vacuum"); err != nil {
+			log.Print(err)
+		}
 	}
 }

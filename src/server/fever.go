@@ -14,6 +14,7 @@ import (
 	"github.com/nkanaev/yarr/src/server/auth"
 	"github.com/nkanaev/yarr/src/server/router"
 	"github.com/nkanaev/yarr/src/storage"
+	"github.com/nkanaev/yarr/src/storage/model"
 )
 
 type FeverGroup struct {
@@ -56,17 +57,14 @@ type FeverFavicon struct {
 func writeFeverJSON(c *router.Context, data map[string]any, lastRefreshed int64) {
 	data["api_version"] = 3
 	data["auth"] = 1
+	// TODO: remove duplicates
 	data["last_refreshed_on_time"] = lastRefreshed
 	c.JSON(http.StatusOK, data)
 }
 
-func getLastRefreshedOnTime(httpStates map[int64]storage.HTTPState) int64 {
-	if len(httpStates) == 0 {
-		return 0
-	}
-
+func getLastRefreshedOnTime(feedStates []model.FeedState) int64 {
 	var lastRefreshed int64
-	for _, state := range httpStates {
+	for _, state := range feedStates {
 		if state.LastRefreshed.Unix() > lastRefreshed {
 			lastRefreshed = state.LastRefreshed.Unix()
 		}
@@ -123,10 +121,11 @@ func (s *Server) handleFever(c *router.Context) {
 	case formHasValue(c.Req.Form, "mark"):
 		s.feverMarkHandler(c)
 	default:
+		states, _ := s.db.ListFeedStates()
 		c.JSON(http.StatusOK, map[string]any{
 			"api_version":            3,
 			"auth":                   1,
-			"last_refreshed_on_time": getLastRefreshedOnTime(s.db.ListHTTPStates()),
+			"last_refreshed_on_time": getLastRefreshedOnTime(states),
 		})
 	}
 }
@@ -142,7 +141,7 @@ func joinInts(values []int64) string {
 	return result.String()
 }
 
-func feedGroups(db *storage.Storage) []*FeverFeedsGroup {
+func feedGroups(db storage.Storage) []*FeverFeedsGroup {
 	feeds := db.ListFeeds()
 
 	groupFeeds := make(map[int64][]int64)
@@ -168,20 +167,25 @@ func (s *Server) feverGroupsHandler(c *router.Context) {
 	for i, folder := range folders {
 		groups[i] = &FeverGroup{ID: folder.Id, Title: folder.Title}
 	}
+	states, _ := s.db.ListFeedStates()
 	writeFeverJSON(c, map[string]any{
 		"groups":       groups,
 		"feeds_groups": feedGroups(s.db),
-	}, getLastRefreshedOnTime(s.db.ListHTTPStates()))
+	}, getLastRefreshedOnTime(states))
 }
 
 func (s *Server) feverFeedsHandler(c *router.Context) {
 	feeds := s.db.ListFeeds()
-	httpStates := s.db.ListHTTPStates()
+	states, _ := s.db.ListFeedStates()
+	statesMap := make(map[int64]model.FeedState)
+	for _, state := range states {
+		statesMap[state.FeedID] = state
+	}
 
 	feverFeeds := make([]*FeverFeed, len(feeds))
 	for i, feed := range feeds {
 		var lastUpdated int64
-		if state, ok := httpStates[feed.Id]; ok {
+		if state, ok := statesMap[feed.Id]; ok {
 			lastUpdated = state.LastRefreshed.Unix()
 		}
 		feverFeeds[i] = &FeverFeed{
@@ -197,7 +201,7 @@ func (s *Server) feverFeedsHandler(c *router.Context) {
 	writeFeverJSON(c, map[string]any{
 		"feeds":        feverFeeds,
 		"feeds_groups": feedGroups(s.db),
-	}, getLastRefreshedOnTime(httpStates))
+	}, getLastRefreshedOnTime(states))
 }
 
 func (s *Server) feverFaviconsHandler(c *router.Context) {
@@ -216,9 +220,10 @@ func (s *Server) feverFaviconsHandler(c *router.Context) {
 		favicons[i] = &FeverFavicon{ID: feed.Id, Data: data}
 	}
 
+	states, _ := s.db.ListFeedStates()
 	writeFeverJSON(c, map[string]any{
 		"favicons": favicons,
-	}, getLastRefreshedOnTime(s.db.ListHTTPStates()))
+	}, getLastRefreshedOnTime(states))
 }
 
 // for memory pressure reasons, we only return a limited number of items
@@ -226,7 +231,7 @@ func (s *Server) feverFaviconsHandler(c *router.Context) {
 const listLimit = 50
 
 func (s *Server) feverItemsHandler(c *router.Context) {
-	filter := storage.ItemFilter{}
+	filter := model.ItemFilter{}
 	query := c.Req.URL.Query()
 
 	switch {
@@ -258,11 +263,11 @@ func (s *Server) feverItemsHandler(c *router.Context) {
 		time := date.Unix()
 
 		isSaved := 0
-		if item.Status == storage.STARRED {
+		if item.Status == model.STARRED {
 			isSaved = 1
 		}
 		isRead := 0
-		if item.Status == storage.READ {
+		if item.Status == model.READ {
 			isRead = 1
 		}
 		feverItems[i] = FeverItem{
@@ -280,23 +285,25 @@ func (s *Server) feverItemsHandler(c *router.Context) {
 
 	totalItems := s.db.CountItems()
 
+	states, _ := s.db.ListFeedStates()
 	writeFeverJSON(c, map[string]any{
 		"items":       feverItems,
 		"total_items": totalItems,
-	}, getLastRefreshedOnTime(s.db.ListHTTPStates()))
+	}, getLastRefreshedOnTime(states))
 }
 
 func (s *Server) feverLinksHandler(c *router.Context) {
+	states, _ := s.db.ListFeedStates()
 	writeFeverJSON(c, map[string]any{
 		"links": make([]any, 0),
-	}, getLastRefreshedOnTime(s.db.ListHTTPStates()))
+	}, getLastRefreshedOnTime(states))
 }
 
 func (s *Server) feverUnreadItemIDsHandler(c *router.Context) {
-	status := storage.UNREAD
+	status := model.UNREAD
 	itemIds := make([]int64, 0)
 
-	itemFilter := storage.ItemFilter{
+	itemFilter := model.ItemFilter{
 		Status: &status,
 	}
 	for {
@@ -309,16 +316,17 @@ func (s *Server) feverUnreadItemIDsHandler(c *router.Context) {
 		}
 		itemFilter.After = &items[len(items)-1].Id
 	}
+	states, _ := s.db.ListFeedStates()
 	writeFeverJSON(c, map[string]any{
 		"unread_item_ids": joinInts(itemIds),
-	}, getLastRefreshedOnTime(s.db.ListHTTPStates()))
+	}, getLastRefreshedOnTime(states))
 }
 
 func (s *Server) feverSavedItemIDsHandler(c *router.Context) {
-	status := storage.STARRED
+	status := model.STARRED
 	itemIds := make([]int64, 0)
 
-	itemFilter := storage.ItemFilter{
+	itemFilter := model.ItemFilter{
 		Status: &status,
 	}
 	for {
@@ -331,9 +339,10 @@ func (s *Server) feverSavedItemIDsHandler(c *router.Context) {
 		}
 		itemFilter.After = &items[len(items)-1].Id
 	}
+	states, _ := s.db.ListFeedStates()
 	writeFeverJSON(c, map[string]any{
 		"saved_item_ids": joinInts(itemIds),
-	}, getLastRefreshedOnTime(s.db.ListHTTPStates()))
+	}, getLastRefreshedOnTime(states))
 }
 
 func (s *Server) feverMarkHandler(c *router.Context) {
@@ -345,16 +354,16 @@ func (s *Server) feverMarkHandler(c *router.Context) {
 
 	switch c.Req.Form.Get("mark") {
 	case "item":
-		var status storage.ItemStatus
+		var status model.ItemStatus
 		switch c.Req.Form.Get("as") {
 		case "read":
-			status = storage.READ
+			status = model.READ
 		case "unread":
-			status = storage.UNREAD
+			status = model.UNREAD
 		case "saved":
-			status = storage.STARRED
+			status = model.STARRED
 		case "unsaved":
-			status = storage.READ
+			status = model.READ
 		default:
 			c.Out.WriteHeader(http.StatusBadRequest)
 			return
@@ -364,7 +373,7 @@ func (s *Server) feverMarkHandler(c *router.Context) {
 		if c.Req.Form.Get("as") != "read" {
 			c.Out.WriteHeader(http.StatusBadRequest)
 		}
-		markFilter := storage.MarkFilter{FeedID: &id}
+		markFilter := model.MarkFilter{FeedID: &id}
 		x, _ := strconv.ParseInt(c.Req.Form.Get("before"), 10, 64)
 		if x > 0 {
 			before := time.Unix(x, 0).UTC()
@@ -375,10 +384,10 @@ func (s *Server) feverMarkHandler(c *router.Context) {
 		if c.Req.Form.Get("as") != "read" {
 			c.Out.WriteHeader(http.StatusBadRequest)
 		}
-		markFilter := storage.MarkFilter{}
+		markFilter := model.MarkFilter{}
 		if id > 0 {
 			markFilter.FolderID = &id
-		} 
+		}
 		x, _ := strconv.ParseInt(c.Req.Form.Get("before"), 10, 64)
 		if x > 0 {
 			before := time.Unix(x, 0).UTC()

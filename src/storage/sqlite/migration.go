@@ -1,4 +1,4 @@
-package storage
+package sqlite
 
 import (
 	"database/sql"
@@ -20,6 +20,9 @@ var migrations = []func(*sql.Tx) error{
 	m10_add_item_medialinks,
 	m11_add_item_last_arrived,
 	m12_remove_feed_sizes,
+	m13_consolidate_feed_states,
+	m14_upgrade_fts5,
+	m15_update_item_update_trigger,
 }
 
 var maxVersion = int64(len(migrations))
@@ -343,5 +346,89 @@ func m11_add_item_last_arrived(tx *sql.Tx) error {
 
 func m12_remove_feed_sizes(tx *sql.Tx) error {
 	_, err := tx.Exec(`drop table if exists feed_sizes`)
+	return err
+}
+
+func m13_consolidate_feed_states(tx *sql.Tx) error {
+	sql := `
+		create table feed_states (
+			feed_id          references feeds(id) on delete cascade unique
+			, last_refreshed datetime not null default 0
+			, last_error     string not null default ''
+
+			, http_lmod      string not null default ''
+			, http_etag      string not null default ''
+		);
+
+		insert into feed_states (
+			feed_id
+			, last_refreshed
+			, last_error
+			, http_lmod
+			, http_etag
+		)
+		select
+			f.id
+			, coalesce(h.last_refreshed, 0)
+			, coalesce(e.error, '')
+			, coalesce(h.last_modified, '')
+			, coalesce(h.etag, '')
+		from feeds f
+		left join http_states h on f.id = h.feed_id
+		left join feed_errors e on f.id = e.feed_id
+		where h.feed_id is not null or e.feed_id is not null;
+
+		drop table http_states;
+		drop table feed_errors;
+	`
+	_, err := tx.Exec(sql)
+	return err
+}
+
+func m14_upgrade_fts5(tx *sql.Tx) error {
+	sql := `
+		-- 1. Drop old FTS4 table and trigger
+		drop table if exists search;
+		drop trigger if exists del_item_search;
+
+		-- 2. Remove search_rowid from items
+		drop index if exists idx_item_search_rowid;
+		alter table items drop column search_rowid;
+
+		-- 3. Create FTS5 virtual table
+		create virtual table search using fts5(
+			title, content,
+			content='items',
+			content_rowid='id',
+			tokenize='unicode61'
+		);
+
+		-- 4. Create triggers for automatic FTS sync
+		create trigger items_ai after insert on items begin
+		  insert into search(rowid, title, content) values (new.id, new.title, strip_html(new.content));
+		end;
+		create trigger items_ad after delete on items begin
+		  insert into search(search, rowid, title, content) values('delete', old.id, old.title, strip_html(old.content));
+		end;
+		create trigger items_au after update on items begin
+		  insert into search(search, rowid, title, content) values('delete', old.id, old.title, strip_html(old.content));
+		  insert into search(rowid, title, content) values (new.id, new.title, strip_html(new.content));
+		end;
+
+		-- 5. Populate FTS5 table with existing data
+		insert into search(rowid, title, content) select id, title, strip_html(content) from items;
+	`
+	_, err := tx.Exec(sql)
+	return err
+}
+
+func m15_update_item_update_trigger(tx *sql.Tx) error {
+	_, err := tx.Exec(`
+		drop trigger if exists items_au;
+		create trigger items_au after update of title, content on items begin
+		  insert into search(search, rowid, title, content) values('delete', old.id, old.title, strip_html(old.content));
+		  insert into search(rowid, title, content) values (new.id, new.title, strip_html(new.content));
+		end;
+	`)
 	return err
 }
