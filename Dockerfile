@@ -14,7 +14,7 @@ COPY . .
 RUN make host
 
 # Runner
-FROM alpine:3.23
+FROM alpine:3.24
 
 # Set the working directory
 WORKDIR /home/yarr
