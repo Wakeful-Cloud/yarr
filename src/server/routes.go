@@ -1,14 +1,12 @@
 package server
 
 import (
-	"crypto/md5"
 	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
 	"path/filepath"
 	"reflect"
-	"strconv"
 	"strings"
 	"time"
 
@@ -35,7 +33,7 @@ func (s *Server) handler() http.Handler {
 			BasePath: s.BasePath,
 			Username: s.Username,
 			Password: s.Password,
-			Public:   []string{"/static", "/fever", "/manifest.json"},
+			Public:   []string{"/", "/login", "/static", "/fever", "/manifest.json"},
 			DB:       s.db,
 		}
 		r.Use(a.Handler)
@@ -50,7 +48,6 @@ func (s *Server) handler() http.Handler {
 	r.For("/api/feeds", s.handleFeedList)
 	r.For("/api/feeds/refresh", s.handleFeedRefresh)
 	r.For("/api/feeds/errors", s.handleFeedErrors)
-	r.For("/api/feeds/:id/icon", s.handleFeedIcon)
 	r.For("/api/feeds/:id", s.handleFeed)
 	r.For("/api/items", s.handleItemList)
 	r.For("/api/items/:id", s.handleItem)
@@ -58,6 +55,7 @@ func (s *Server) handler() http.Handler {
 	r.For("/opml/import", s.handleOPMLImport)
 	r.For("/opml/export", s.handleOPMLExport)
 	r.For("/page", s.handlePageCrawl)
+	r.For("/login", s.handleLogin)
 	r.For("/logout", s.handleLogout)
 	r.For("/fever/", s.handleFever)
 
@@ -65,9 +63,27 @@ func (s *Server) handler() http.Handler {
 }
 
 func (s *Server) handleIndex(c *router.Context) {
-	c.HTML(http.StatusOK, assets.Template("index.html"), map[string]any{
-		"settings":      s.db.GetSettings().Map(),
-		"authenticated": s.Username != "" && s.Password != "",
+	isAuthenticated := false
+	requiresAuth := false
+	if s.Username == "" && s.Password == "" {
+		isAuthenticated = true
+	} else {
+		requiresAuth = true
+		isAuthenticated = auth.IsAuthenticated(c.Req, s.Username, s.Password)
+	}
+
+	settings := s.db.GetSettings()
+	if !isAuthenticated {
+		settings = model.Settings{
+			Language:  settings.Language,
+			ThemeName: settings.ThemeName,
+		}
+	}
+
+	c.HTML(http.StatusOK, assets.Templates().Lookup("index.html"), map[string]any{
+		"settings":      settings.Map(),
+		"authenticated": isAuthenticated,
+		"requiresAuth":  requiresAuth,
 	})
 }
 
@@ -78,7 +94,7 @@ func (s *Server) handleStatic(c *router.Context) {
 		c.Out.WriteHeader(http.StatusNotFound)
 		return
 	}
-	http.StripPrefix(s.BasePath+"/static/", http.FileServer(http.FS(assets.FS))).
+	http.StripPrefix(s.BasePath+"/static/", http.FileServer(http.FS(assets.StaticFS()))).
 		ServeHTTP(c.Out, c.Req)
 }
 
@@ -92,7 +108,7 @@ func (s *Server) handleManifest(c *router.Context) {
 		"start_url":   "/" + strings.TrimPrefix(s.BasePath, "/"),
 		"icons": []map[string]any{
 			{
-				"src":   s.BasePath + "/static/graphicarts/favicon.png",
+				"src":   s.BasePath + "/static/favicon.png",
 				"sizes": "64x64",
 				"type":  "image/png",
 			},
@@ -175,57 +191,6 @@ func (s *Server) handleFeedErrors(c *router.Context) {
 	c.JSON(http.StatusOK, errors)
 }
 
-type feedicon struct {
-	ctype string
-	bytes []byte
-	etag  string
-}
-
-func (s *Server) handleFeedIcon(c *router.Context) {
-	id, err := c.VarInt64("id")
-	if err != nil {
-		c.Out.WriteHeader(http.StatusBadRequest)
-		return
-	}
-
-	cachekey := "icon:" + strconv.FormatInt(id, 10)
-	s.cache_mutex.Lock()
-	cachedat := s.cache[cachekey]
-	s.cache_mutex.Unlock()
-	if cachedat == nil {
-		feed := s.db.GetFeed(id)
-		if feed == nil || feed.Icon == nil {
-			c.Out.WriteHeader(http.StatusNotFound)
-			return
-		}
-
-		hash := md5.New()
-		hash.Write(*feed.Icon)
-
-		etag := fmt.Sprintf("%x", hash.Sum(nil))[:16]
-
-		cachedat = feedicon{
-			ctype: http.DetectContentType(*feed.Icon),
-			bytes: *(*feed).Icon,
-			etag:  etag,
-		}
-		s.cache_mutex.Lock()
-		s.cache[cachekey] = cachedat
-		s.cache_mutex.Unlock()
-	}
-
-	icon := cachedat.(feedicon)
-
-	if c.Req.Header.Get("If-None-Match") == icon.etag {
-		c.Out.WriteHeader(http.StatusNotModified)
-		return
-	}
-
-	c.Out.Header().Set("Content-Type", icon.ctype)
-	c.Out.Header().Set("Etag", icon.etag)
-	c.Out.Write(icon.bytes)
-}
-
 func (s *Server) handleFeedList(c *router.Context) {
 	if c.Req.Method == "GET" {
 		list := s.db.ListFeeds()
@@ -249,8 +214,12 @@ func (s *Server) handleFeedList(c *router.Context) {
 				map[string]any{"status": "multiple", "choice": result.Sources},
 			)
 		case result.Feed != nil:
+			title := result.Feed.Title
+			if form.TitleOverride != "" {
+				title = form.TitleOverride
+			}
 			feed := s.db.CreateFeed(model.CreateFeedParams{
-				Title:    result.Feed.Title,
+				Title:    title,
 				Link:     result.Feed.SiteURL,
 				FeedLink: result.FeedLink,
 				FolderID: form.FolderID,
@@ -555,6 +524,22 @@ func (s *Server) handlePageCrawl(c *router.Context) {
 	c.JSON(http.StatusOK, map[string]string{
 		"content": content,
 	})
+}
+
+func (s *Server) handleLogin(c *router.Context) {
+	if c.Req.Method == "POST" {
+		username := c.Req.FormValue("username")
+		password := c.Req.FormValue("password")
+		if auth.StringsEqual(username, s.Username) && auth.StringsEqual(password, s.Password) {
+			auth.Authenticate(c.Out, s.Username, s.Password, s.BasePath)
+			return
+		} else {
+			c.Out.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+	} else {
+		c.Out.WriteHeader(http.StatusMethodNotAllowed)
+	}
 }
 
 func (s *Server) handleLogout(c *router.Context) {

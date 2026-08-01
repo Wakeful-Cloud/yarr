@@ -27,6 +27,7 @@ func TestUpdateSettings(t *testing.T) {
 			ThemeName:     ptr("night"),
 			FeedListWidth: ptr(400),
 			RefreshRate:   ptr(int64(15)),
+			ThemeSize:     ptr(1.2),
 		}
 
 		if ok := s.UpdateSettings(params); !ok {
@@ -43,6 +44,9 @@ func TestUpdateSettings(t *testing.T) {
 		}
 		if settings.RefreshRate != 15 {
 			t.Errorf("expected refresh_rate 15, got %d", settings.RefreshRate)
+		}
+		if settings.ThemeSize != 1.2 {
+			t.Errorf("expected theme_size 1.2, got %v", settings.ThemeSize)
 		}
 	})
 }
@@ -64,8 +68,8 @@ func TestGetSettings(t *testing.T) {
 func TestSettingsExhaustive(t *testing.T) {
 	dbtest(t, func(t *testing.T, s storage.Storage) {
 
-		settingsType := reflect.TypeOf(model.Settings{})
-		paramsType := reflect.TypeOf(model.UpdateSettingsParams{})
+		settingsType := reflect.TypeFor[model.Settings]()
+		paramsType := reflect.TypeFor[model.UpdateSettingsParams]()
 
 		settings := s.GetSettings()
 		m := settings.Map()
@@ -93,7 +97,7 @@ func TestSettingsExhaustive(t *testing.T) {
 				if pJsonTag == jsonKey {
 					foundInParams = true
 					// Also check it's a pointer
-					if pField.Type.Kind() != reflect.Ptr {
+					if pField.Type.Kind() != reflect.Pointer {
 						t.Errorf("Field %s in UpdateSettingsParams should be a pointer", pField.Name)
 					}
 					break

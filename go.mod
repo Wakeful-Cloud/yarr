@@ -1,16 +1,16 @@
 module github.com/nkanaev/yarr
 
-go 1.25.0
+go 1.26.0
 
 require (
 	fyne.io/systray v1.12.0
 	github.com/lib/pq v1.12.3
 	github.com/mattn/go-sqlite3 v1.14.24
-	golang.org/x/net v0.38.0
-	golang.org/x/sys v0.31.0
+	golang.org/x/net v0.56.0
+	golang.org/x/sys v0.46.0
 )
 
 require (
 	github.com/godbus/dbus/v5 v5.1.0 // indirect
-	golang.org/x/text v0.23.0 // indirect
+	golang.org/x/text v0.38.0 // indirect
 )

@@ -7,7 +7,8 @@ RUN apt install -y \
         gcc-aarch64-linux-gnu \
         binutils-aarch64-linux-gnu binutils-aarch64-linux-gnu-dbg \
         gcc-arm-linux-gnueabihf \
-        binutils-arm-linux-gnueabihf binutils-arm-linux-gnueabihf-dbg
+        binutils-arm-linux-gnueabihf binutils-arm-linux-gnueabihf-dbg \
+        nodejs npm
 RUN env DEBIAN_FRONTEND=noninteractive \
     apt install -y qemu-user qemu-user-static
 
@@ -21,6 +22,8 @@ ENV PATH=$PATH:/usr/local/go/bin
 WORKDIR /root/src
 RUN mkdir /root/out
 COPY . .
+RUN --mount=type=cache,target=/root/.npm \
+    npm ci
 
 # Build ARM64
 RUN env \

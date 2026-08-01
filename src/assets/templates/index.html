@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html lang="{{ .settings.language }}" data-theme="{{ .settings.theme_name }}">
+<head>
+    <meta charset="UTF-8">
+    <title>yarr!</title>
+    <link rel="stylesheet" href="./static/bundle.css">
+    <link rel="icon" href="./static/favicon.svg" type="image/svg+xml">
+    <link rel="alternate icon" href="./static/favicon.png" type="image/png">
+    <link rel="manifest" href="./manifest.json" />
+    <meta name="theme-color" content="" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
+    <script>
+        window.app = window.app || {}
+        window.app.settings = {{ .settings }};
+        window.app.authenticated = {{ .authenticated }};
+        window.app.requiresAuth = {{ .requiresAuth }};
+    </script>
+</head>
+<body>
+    <div id="app" v-cloak></div>
+    <script src="./static/bundle.js"></script>
+</body>
+</html>

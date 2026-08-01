@@ -1,5 +1,21 @@
 # upcoming
 
+- (new) show API errors notifications
+- (fix) delayed initial render of feeds (thanks to @Digitalone1 for the report)
+- (fix) changing font size for articles (thanks to @iredmail for the report)
+- (etc) frontend refactoring (vue 2 -> 3, bootstrap 4 -> 5)
+
+# v2.8 (2026-07-16)
+
+- (new) add system-based light/dark theme
+- (new) support for HTTP/2 (thanks to @Dean-Corso for the report)
+- (fix) displaying correct title for custom Youtube feeds
+- (fix) mark items as read performance degradation (thanks to @DigitalOne1 for the report)
+- (etc) do not auto-refresh feeds on startup
+- (etc) show current feed/folder in search placeholder
+
+# v2.7 (2026-06-24)
+
 - (new) initial PostgreSQL support
 - (new) i18n: English, Chinese, French, German, Japanese, Portuguese, Russian, Spanish
 - (fix) articles not resetting immediately after feed/filter selection (thank to @scratchmex for the report)

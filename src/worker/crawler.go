@@ -18,15 +18,10 @@ import (
 	"golang.org/x/net/html/charset"
 )
 
-type FeedSource struct {
-	Title string `json:"title"`
-	Url   string `json:"url"`
-}
-
 type DiscoverResult struct {
 	Feed     *parser.Feed
 	FeedLink string
-	Sources  []FeedSource
+	Sources  []scraper.FeedLink
 }
 
 func DiscoverFeed(candidateUrl string) (*DiscoverResult, error) {
@@ -64,25 +59,22 @@ func DiscoverFeed(candidateUrl string) (*DiscoverResult, error) {
 			}
 		}
 	}
-	sources := make([]FeedSource, 0)
-	for url, title := range scraper.FindFeeds(content, candidateUrl) {
-		sources = append(sources, FeedSource{Title: title, Url: url})
-	}
+	sources := scraper.FindFeeds(content, candidateUrl)
 	switch {
 	case len(sources) == 0:
 		return nil, errors.New("no feeds found at the given url")
 	case len(sources) == 1:
-		if sources[0].Url == candidateUrl {
+		if sources[0].URL == candidateUrl {
 			return nil, errors.New("recursion")
 		}
-		return DiscoverFeed(sources[0].Url)
+		return DiscoverFeed(sources[0].URL)
 	}
 
 	result.Sources = sources
 	return result, nil
 }
 
-var emptyIcon = make([]byte, 0)
+var emptyIcon = make(model.Icon, 0)
 var imageTypes = map[string]bool{
 	"image/x-icon": true,
 	"image/png":    true,
@@ -90,7 +82,7 @@ var imageTypes = map[string]bool{
 	"image/gif":    true,
 }
 
-func findFavicon(siteUrl, feedUrl string) (*[]byte, error) {
+func findFavicon(siteUrl, feedUrl string) (*model.Icon, error) {
 	urls := make([]string, 0)
 
 	favicon := func(link string) string {
@@ -134,7 +126,8 @@ func findFavicon(siteUrl, feedUrl string) (*[]byte, error) {
 
 		ctype := http.DetectContentType(content)
 		if imageTypes[ctype] {
-			return &content, nil
+			icon := model.Icon(content)
+			return &icon, nil
 		}
 	}
 	return &emptyIcon, nil
