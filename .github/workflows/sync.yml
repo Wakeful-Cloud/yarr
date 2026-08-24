@@ -5,7 +5,7 @@ name: sync
 on:
   # Run on the 1st of every month at 00:00 UTC
   schedule:
-    - cron: '0 0 1 * *'
+    - cron: "0 0 1 * *"
 
   # Run when manually triggered
   workflow_dispatch:
@@ -18,13 +18,13 @@ jobs:
     steps:
       # Checkout downstream (This repository) twice, once for the old state and once for the new state
       - name: Checkout downstream (Old)
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
           path: old
 
       - name: Checkout downstream (New)
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
           path: new
