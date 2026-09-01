@@ -166,24 +166,24 @@ func getExtraAttributes(tagName string) ([]string, []string) {
 	switch tagName {
 	case "a":
 		return []string{
-				"rel",
-				"target",
-				"referrerpolicy",
-			}, []string{
-				`rel="noopener noreferrer"`,
-				`target="_blank"`,
-				`referrerpolicy="no-referrer"`,
-			}
+			"rel",
+			"target",
+			"referrerpolicy",
+		}, []string{
+			`rel="noopener noreferrer"`,
+			`target="_blank"`,
+			`referrerpolicy="no-referrer"`,
+		}
 	case "video", "audio":
 		return []string{"controls"}, []string{"controls"}
 	case "iframe":
 		return []string{
-				"sandbox",
-				"loading",
-			}, []string{
-				`sandbox="allow-scripts allow-same-origin allow-popups"`,
-				`loading="lazy"`,
-			}
+			"sandbox",
+			"loading",
+		}, []string{
+			`sandbox="allow-scripts allow-same-origin allow-popups"`,
+			`loading="lazy"`,
+		}
 	case "img":
 		return []string{"loading"}, []string{`loading="lazy"`, `referrerpolicy="no-referrer"`}
 	default:
@@ -240,7 +240,7 @@ func hasRequiredAttributes(tagName string, attributes []string) bool {
 
 // See https://www.iana.org/assignments/uri-schemes/uri-schemes.xhtml
 func hasValidURIScheme(src string) bool {
-	scheme := strings.SplitN(src, ":", 2)[0]
+	scheme, _, _ := strings.Cut(src, ":")
 	return allowedURISchemes.has(scheme)
 }
 
