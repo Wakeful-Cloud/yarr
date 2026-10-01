@@ -1,5 +1,5 @@
 # Builder (See https://hub.docker.com/layers/library/alpine/3.24.1/images/sha256-6f5908cdf811d574b30ec394e405ef74ee293bed5af1620a5187d604604a90a8)
-FROM alpine:3.24.1@sha256:28bd5fe8b56d1bd048e5babf5b10710ebe0bae67db86916198a6eec434943f8b AS builder
+FROM alpine:3.24.2@sha256:294b683cb724975bec92580e1e685676bd4b50bda910ddb8c51d4cabeaec77e6 AS builder
 
 # Set the working directory
 WORKDIR /src
@@ -17,7 +17,7 @@ RUN npm ci
 RUN make host
 
 # Runner (See https://hub.docker.com/layers/library/alpine/3.24.1/images/sha256-6f5908cdf811d574b30ec394e405ef74ee293bed5af1620a5187d604604a90a8)
-FROM alpine:3.24.1@sha256:28bd5fe8b56d1bd048e5babf5b10710ebe0bae67db86916198a6eec434943f8b
+FROM alpine:3.24.2@sha256:294b683cb724975bec92580e1e685676bd4b50bda910ddb8c51d4cabeaec77e6
 
 # Set the working directory
 WORKDIR /home/yarr
