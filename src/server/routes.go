@@ -11,14 +11,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/nkanaev/yarr/src/assets"
 	"github.com/nkanaev/yarr/src/content/htmlutil"
 	"github.com/nkanaev/yarr/src/content/readability"
 	"github.com/nkanaev/yarr/src/content/sanitizer"
 	"github.com/nkanaev/yarr/src/content/silo"
-	"github.com/nkanaev/yarr/src/server/auth"
-	"github.com/nkanaev/yarr/src/server/gzip"
-	"github.com/nkanaev/yarr/src/server/opml"
+	"github.com/nkanaev/yarr/src/parser/opml"
+	"github.com/nkanaev/yarr/src/server/middleware"
 	"github.com/nkanaev/yarr/src/storage/model"
 	"github.com/nkanaev/yarr/src/worker"
 )
@@ -39,85 +37,58 @@ func writeHTML(w http.ResponseWriter, status int, tmpl *template.Template, data 
 	}
 }
 
-func (s *Server) handler() http.Handler {
-	staticFS := http.FileServer(http.FS(assets.StaticFS()))
+func (s *Server) Handler() http.Handler {
+	staticFS := http.FileServer(http.FS(s.StaticFS))
 
-	publicMux := http.NewServeMux()
-	publicMux.HandleFunc("/{$}", s.handleIndex)
-	publicMux.HandleFunc("/login", s.handleLogin)
-	publicMux.HandleFunc("/static/{path...}", http.StripPrefix("/static/", staticFS).ServeHTTP)
-	publicMux.HandleFunc("/fever/", s.handleFever)
-	publicMux.HandleFunc("/manifest.json", s.handleManifest)
-
-	secureMux := http.NewServeMux()
-	secureMux.HandleFunc("/api/status", s.handleStatus)
-	secureMux.HandleFunc("/api/folders", s.handleFolderList)
-	secureMux.HandleFunc("/api/folders/{id}", s.handleFolder)
-	secureMux.HandleFunc("/api/feeds", s.handleFeedList)
-	secureMux.HandleFunc("/api/feeds/refresh", s.handleFeedRefresh)
-	secureMux.HandleFunc("/api/feeds/errors", s.handleFeedErrors)
-	secureMux.HandleFunc("/api/feeds/{id}", s.handleFeed)
-	secureMux.HandleFunc("/api/items", s.handleItemList)
-	secureMux.HandleFunc("/api/items/{id}", s.handleItem)
-	secureMux.HandleFunc("/api/settings", s.handleSettings)
-	secureMux.HandleFunc("/opml/import", s.handleOPMLImport)
-	secureMux.HandleFunc("/opml/export", s.handleOPMLExport)
-	secureMux.HandleFunc("/page", s.handlePageCrawl)
-	secureMux.HandleFunc("/logout", s.handleLogout)
-
-	var protected http.Handler = secureMux
-	if s.Username != "" && s.Password != "" {
-		protected = auth.Middleware(s.Username, s.Password, secureMux)
-	}
-
-	dispatch := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_, pattern := secureMux.Handler(r)
-		if pattern != "" {
-			protected.ServeHTTP(w, r)
-		} else {
-			publicMux.ServeHTTP(w, r)
+	secure := func(next http.HandlerFunc) http.HandlerFunc {
+		if s.Auth == nil {
+			return next
 		}
-	})
-
-	if s.BasePath != "" {
-		baseDispatch := dispatch
-		dispatch = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if r.URL.Path == s.BasePath {
-				http.Redirect(w, r, s.BasePath+"/", http.StatusFound)
-				return
-			}
-			if !strings.HasPrefix(r.URL.Path, s.BasePath) {
-				w.WriteHeader(http.StatusNotFound)
-				return
-			}
-			r2 := r.Clone(r.Context())
-			r2.URL.Path = strings.TrimPrefix(r.URL.Path, s.BasePath)
-			baseDispatch.ServeHTTP(w, r2)
-		})
+		return s.Auth.Middleware(next)
 	}
 
-	return gzip.Middleware(dispatch)
+	mux := http.NewServeMux()
+	mux.HandleFunc("/{$}", s.handleIndex)
+	mux.HandleFunc("/login", s.handleLogin)
+	mux.HandleFunc("/static/{path...}", http.StripPrefix("/static/", staticFS).ServeHTTP)
+	mux.HandleFunc("/fever/", s.handleFever)
+	mux.HandleFunc("/manifest.json", s.handleManifest)
+	mux.HandleFunc("/api/status", secure(s.handleStatus))
+	mux.HandleFunc("/api/folders", secure(s.handleFolderList))
+	mux.HandleFunc("/api/folders/{id}", secure(s.handleFolder))
+	mux.HandleFunc("/api/feeds", secure(s.handleFeedList))
+	mux.HandleFunc("/api/feeds/refresh", secure(s.handleFeedRefresh))
+	mux.HandleFunc("/api/feeds/errors", secure(s.handleFeedErrors))
+	mux.HandleFunc("/api/feeds/{id}", secure(s.handleFeed))
+	mux.HandleFunc("/api/items", secure(s.handleItemList))
+	mux.HandleFunc("/api/items/{id}", secure(s.handleItem))
+	mux.HandleFunc("/api/settings", secure(s.handleSettings))
+	mux.HandleFunc("/opml/import", secure(s.handleOPMLImport))
+	mux.HandleFunc("/opml/export", secure(s.handleOPMLExport))
+	mux.HandleFunc("/page", secure(s.handlePageCrawl))
+	mux.HandleFunc("/logout", secure(s.handleLogout))
+
+	handler := middleware.Base(mux, s.BasePath)
+
+	return middleware.Gzip(handler)
 }
 
 func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
 	isAuthenticated := false
 	requiresAuth := false
-	if s.Username == "" && s.Password == "" {
+	if s.Auth == nil {
 		isAuthenticated = true
 	} else {
 		requiresAuth = true
-		isAuthenticated = auth.IsAuthenticated(r, s.Username, s.Password)
+		isAuthenticated = s.Auth.IsAuthenticated(r)
 	}
 
-	settings := s.db.GetSettings()
-	if !isAuthenticated {
-		settings = model.Settings{
-			Language:  settings.Language,
-			ThemeName: settings.ThemeName,
-		}
+	settings := model.SettingsDefault()
+	if isAuthenticated {
+		settings = s.db(r).GetSettings()
 	}
 
-	writeHTML(w, http.StatusOK, assets.Templates().Lookup("index.html"), map[string]any{
+	writeHTML(w, http.StatusOK, s.Template.Lookup("index.html"), map[string]any{
 		"settings":      settings.Map(),
 		"authenticated": isAuthenticated,
 		"requiresAuth":  requiresAuth,
@@ -143,16 +114,21 @@ func (s *Server) handleManifest(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
+	var running int32
+	if s.Scheduler != nil {
+		running = s.Scheduler.FeedsPending()
+	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"running": s.worker.FeedsPending(),
-		"stats":   s.db.FeedStats(),
+		"running": running,
+		"refresh": s.Scheduler != nil,
+		"stats":   s.db(r).FeedStats(),
 	})
 }
 
 func (s *Server) handleFolderList(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
-		writeJSON(w, http.StatusOK, s.db.ListFolders())
+		writeJSON(w, http.StatusOK, s.db(r).ListFolders())
 	case http.MethodPost:
 		var body FolderCreateForm
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
@@ -164,7 +140,7 @@ func (s *Server) handleFolderList(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "Folder title missing."})
 			return
 		}
-		writeJSON(w, http.StatusCreated, s.db.CreateFolder(body.Title))
+		writeJSON(w, http.StatusCreated, s.db(r).CreateFolder(body.Title))
 	default:
 		w.WriteHeader(http.StatusMethodNotAllowed)
 	}
@@ -184,13 +160,13 @@ func (s *Server) handleFolder(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusBadRequest)
 			return
 		}
-		s.db.UpdateFolder(id, model.UpdateFolderParams{
+		s.db(r).UpdateFolder(id, model.UpdateFolderParams{
 			Title:      body.Title,
 			IsExpanded: body.IsExpanded,
 		})
 		w.WriteHeader(http.StatusOK)
 	case http.MethodDelete:
-		s.db.DeleteFolder(id)
+		s.db(r).DeleteFolder(id)
 		w.WriteHeader(http.StatusNoContent)
 	default:
 		w.WriteHeader(http.StatusMethodNotAllowed)
@@ -200,7 +176,9 @@ func (s *Server) handleFolder(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleFeedRefresh(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodPost:
-		s.worker.RefreshFeeds()
+		if s.Scheduler != nil {
+			s.Scheduler.RefreshFeeds()
+		}
 		w.WriteHeader(http.StatusOK)
 	default:
 		w.WriteHeader(http.StatusMethodNotAllowed)
@@ -209,7 +187,7 @@ func (s *Server) handleFeedRefresh(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleFeedErrors(w http.ResponseWriter, r *http.Request) {
 	errors := make(map[int64]string)
-	states, err := s.db.ListFeedStates()
+	states, err := s.db(r).ListFeedStates()
 	if err == nil {
 		for _, state := range states {
 			if state.LastError != "" {
@@ -223,7 +201,7 @@ func (s *Server) handleFeedErrors(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleFeedList(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
-		writeJSON(w, http.StatusOK, s.db.ListFeeds())
+		writeJSON(w, http.StatusOK, s.db(r).ListFeeds())
 	case http.MethodPost:
 		var form FeedCreateForm
 		if err := json.NewDecoder(r.Body).Decode(&form); err != nil {
@@ -248,7 +226,7 @@ func (s *Server) handleFeedList(w http.ResponseWriter, r *http.Request) {
 			if form.TitleOverride != "" {
 				title = form.TitleOverride
 			}
-			feed := s.db.CreateFeed(model.CreateFeedParams{
+			feed := s.db(r).CreateFeed(model.CreateFeedParams{
 				Title:    title,
 				Link:     result.Feed.SiteURL,
 				FeedLink: result.FeedLink,
@@ -256,9 +234,9 @@ func (s *Server) handleFeedList(w http.ResponseWriter, r *http.Request) {
 			})
 			items := worker.ConvertItems(result.Feed.Items, *feed)
 			if len(items) > 0 {
-				s.db.CreateItems(items)
+				s.db(r).CreateItems(items)
 			}
-			s.worker.FindFeedFavicon(*feed)
+			// TODO: DiscoverFeed must search for favicon too
 
 			writeJSON(w, http.StatusOK, map[string]any{
 				"status": "success",
@@ -280,7 +258,7 @@ func (s *Server) handleFeed(w http.ResponseWriter, r *http.Request) {
 	}
 	switch r.Method {
 	case http.MethodPut:
-		feed := s.db.GetFeed(id)
+		feed := s.db(r).GetFeed(id)
 		if feed == nil {
 			w.WriteHeader(http.StatusBadRequest)
 			return
@@ -312,10 +290,10 @@ func (s *Server) handleFeed(w http.ResponseWriter, r *http.Request) {
 				params.FeedLink = &l
 			}
 		}
-		s.db.UpdateFeed(id, params)
+		s.db(r).UpdateFeed(id, params)
 		w.WriteHeader(http.StatusOK)
 	case http.MethodDelete:
-		s.db.DeleteFeed(id)
+		s.db(r).DeleteFeed(id)
 		w.WriteHeader(http.StatusNoContent)
 	default:
 		w.WriteHeader(http.StatusMethodNotAllowed)
@@ -330,7 +308,7 @@ func (s *Server) handleItem(w http.ResponseWriter, r *http.Request) {
 	}
 	switch r.Method {
 	case http.MethodGet:
-		item := s.db.GetItem(id)
+		item := s.db(r).GetItem(id)
 		if item == nil {
 			w.WriteHeader(http.StatusBadRequest)
 			return
@@ -338,7 +316,7 @@ func (s *Server) handleItem(w http.ResponseWriter, r *http.Request) {
 
 		// runtime fix for relative links
 		if !htmlutil.IsAPossibleLink(item.Link) {
-			if feed := s.db.GetFeed(item.FeedId); feed != nil {
+			if feed := s.db(r).GetFeed(item.FeedId); feed != nil {
 				item.Link = htmlutil.AbsoluteUrl(item.Link, feed.Link)
 			}
 		}
@@ -357,7 +335,7 @@ func (s *Server) handleItem(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if body.Status != nil {
-			s.db.UpdateItemStatus(id, *body.Status)
+			s.db(r).UpdateItem(id, model.UpdateItemParams{Status: body.Status})
 		}
 		w.WriteHeader(http.StatusOK)
 	default:
@@ -390,7 +368,7 @@ func (s *Server) handleItemList(w http.ResponseWriter, r *http.Request) {
 		}
 		newestFirst := query.Get("oldest_first") != "true"
 
-		items := s.db.ListItems(filter, perPage+1, newestFirst, true)
+		items := s.db(r).ListItems(filter, perPage+1, newestFirst, true)
 		hasMore := false
 		if len(items) == perPage+1 {
 			hasMore = true
@@ -417,7 +395,7 @@ func (s *Server) handleItemList(w http.ResponseWriter, r *http.Request) {
 		if feedID, err := strconv.ParseInt(query.Get("feed_id"), 10, 64); err == nil {
 			filter.FeedID = &feedID
 		}
-		s.db.MarkItemsRead(filter)
+		s.db(r).MarkItemsRead(filter)
 		w.WriteHeader(http.StatusOK)
 	default:
 		w.WriteHeader(http.StatusMethodNotAllowed)
@@ -427,16 +405,16 @@ func (s *Server) handleItemList(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleSettings(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
-		writeJSON(w, http.StatusOK, s.db.GetSettings())
+		writeJSON(w, http.StatusOK, s.db(r).GetSettings())
 	case http.MethodPut:
 		var params model.UpdateSettingsParams
 		if err := json.NewDecoder(r.Body).Decode(&params); err != nil {
 			w.WriteHeader(http.StatusBadRequest)
 			return
 		}
-		if s.db.UpdateSettings(params) {
-			if params.RefreshRate != nil {
-				s.worker.SetRefreshRate(s.db.GetSettings().RefreshRate)
+		if s.db(r).UpdateSettings(params) {
+			if s.Scheduler != nil && params.RefreshRate != nil {
+				s.Scheduler.SetRefreshRate(*params.RefreshRate)
 			}
 			w.WriteHeader(http.StatusOK)
 		} else {
@@ -462,16 +440,16 @@ func (s *Server) handleOPMLImport(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		for _, f := range doc.Feeds {
-			s.db.CreateFeed(model.CreateFeedParams{
+			s.db(r).CreateFeed(model.CreateFeedParams{
 				Title:    f.Title,
 				Link:     f.SiteUrl,
 				FeedLink: f.FeedUrl,
 			})
 		}
 		for _, f := range doc.Folders {
-			folder := s.db.CreateFolder(f.Title)
+			folder := s.db(r).CreateFolder(f.Title)
 			for _, ff := range f.AllFeeds() {
-				s.db.CreateFeed(model.CreateFeedParams{
+				s.db(r).CreateFeed(model.CreateFeedParams{
 					Title:    ff.Title,
 					Link:     ff.SiteUrl,
 					FeedLink: ff.FeedUrl,
@@ -480,7 +458,9 @@ func (s *Server) handleOPMLImport(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 
-		s.worker.RefreshFeeds()
+		if s.Scheduler != nil {
+			s.Scheduler.RefreshFeeds()
+		}
 
 		w.WriteHeader(http.StatusOK)
 	default:
@@ -498,7 +478,7 @@ func (s *Server) handleOPMLExport(w http.ResponseWriter, r *http.Request) {
 		doc := opml.Folder{}
 
 		feedsByFolderID := make(map[int64][]*model.Feed)
-		for _, feed := range s.db.ListFeeds() {
+		for _, feed := range s.db(r).ListFeeds() {
 			if feed.FolderId == nil {
 				doc.Feeds = append(doc.Feeds, opml.Feed{
 					Title:   feed.Title,
@@ -511,7 +491,7 @@ func (s *Server) handleOPMLExport(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 
-		for _, folder := range s.db.ListFolders() {
+		for _, folder := range s.db(r).ListFolders() {
 			folderFeeds := feedsByFolderID[folder.Id]
 			if len(folderFeeds) == 0 {
 				continue
@@ -572,10 +552,7 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	case http.MethodPost:
 		username := r.FormValue("username")
 		password := r.FormValue("password")
-		if auth.StringsEqual(username, s.Username) && auth.StringsEqual(password, s.Password) {
-			auth.Authenticate(w, s.Username, s.Password, s.BasePath)
-			return
-		} else {
+		if s.Auth == nil || !s.Auth.Authenticate(w, username, password) {
 			w.WriteHeader(http.StatusUnauthorized)
 			return
 		}
@@ -585,6 +562,8 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
-	auth.Logout(w, s.BasePath)
+	if s.Auth != nil {
+		s.Auth.Logout(w)
+	}
 	w.WriteHeader(http.StatusNoContent)
 }

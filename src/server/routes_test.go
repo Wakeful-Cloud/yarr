@@ -11,11 +11,23 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/nkanaev/yarr/src/assets"
 	"github.com/nkanaev/yarr/src/storage"
 )
 
+func testServer() *Server {
+	db, _ := storage.New(":memory:")
+
+	server := NewServer("127.0.0.1:8000")
+	server.StaticFS = assets.StaticFS()
+	server.Template = assets.Templates()
+	server.Storage = NewLocalStorage(db)
+
+	return server
+}
+
 func TestStatic(t *testing.T) {
-	handler := NewServer(nil, "127.0.0.1:8000").handler()
+	handler := testServer().Handler()
 	url := "/static/bundle.js"
 
 	recorder := httptest.NewRecorder()
@@ -27,10 +39,10 @@ func TestStatic(t *testing.T) {
 }
 
 func TestStaticWithBase(t *testing.T) {
-	server := NewServer(nil, "127.0.0.1:8000")
+	server := testServer()
 	server.BasePath = "/sub"
 
-	handler := server.handler()
+	handler := server.Handler()
 	url := "/sub/static/bundle.js"
 
 	recorder := httptest.NewRecorder()
@@ -42,7 +54,8 @@ func TestStaticWithBase(t *testing.T) {
 }
 
 func TestStaticBanTemplates(t *testing.T) {
-	handler := NewServer(nil, "127.0.0.1:8000").handler()
+	server := testServer()
+	handler := server.Handler()
 	url := "/static/login.html"
 
 	recorder := httptest.NewRecorder()
@@ -55,9 +68,8 @@ func TestStaticBanTemplates(t *testing.T) {
 
 func TestIndexGzipped(t *testing.T) {
 	log.SetOutput(io.Discard)
-	db, _ := storage.New(":memory:")
 	log.SetOutput(os.Stderr)
-	handler := NewServer(db, "127.0.0.1:8000").handler()
+	handler := testServer().Handler()
 	url := "/"
 
 	recorder := httptest.NewRecorder()
@@ -97,12 +109,7 @@ func TestFeedCreateWithTitleOverride(t *testing.T) {
 	}))
 	defer feedSrv.Close()
 
-	db, err := storage.New(":memory:")
-	if err != nil {
-		t.Fatal(err)
-	}
-	server := NewServer(db, "127.0.0.1:8000")
-	handler := server.handler()
+	handler := testServer().Handler()
 
 	t.Run("override title", func(t *testing.T) {
 		body := fmt.Sprintf(`{"url":%q,"title_override":"Override Title"}`, feedSrv.URL)

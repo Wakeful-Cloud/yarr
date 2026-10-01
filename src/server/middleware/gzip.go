@@ -1,4 +1,4 @@
-package gzip
+package middleware
 
 import (
 	"compress/gzip"
@@ -25,8 +25,8 @@ var gzipPool = sync.Pool{
 	},
 }
 
-func Middleware(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+func Gzip(next http.Handler) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
 		// 1. Check if client accepts gzip encoding
 		if !strings.Contains(r.Header.Get("Accept-Encoding"), "gzip") {
 			next.ServeHTTP(w, r)
@@ -51,5 +51,5 @@ func Middleware(next http.Handler) http.Handler {
 		}
 
 		next.ServeHTTP(gzw, r)
-	})
+	}
 }

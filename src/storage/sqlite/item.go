@@ -106,7 +106,8 @@ func listQueryPredicate(filter model.ItemFilter, newestFirst bool) (string, []an
 		words := strings.Fields(*filter.Search)
 		terms := make([]string, len(words))
 		for idx, word := range words {
-			terms[idx] = word + "*"
+			word = strings.ReplaceAll(word, "\"", "\"\"")
+			terms[idx] = "\"" + word + "\"" + "*"
 		}
 
 		cond = append(
@@ -220,6 +221,9 @@ func (s *SQLiteStorage) ListItems(
 		}
 		result = append(result, x)
 	}
+	if err := rows.Err(); err != nil {
+		log.Print(err)
+	}
 	return result
 }
 
@@ -243,39 +247,18 @@ func (s *SQLiteStorage) GetItem(id int64) *model.Item {
 }
 
 func (s *SQLiteStorage) UpdateItem(id int64, params model.UpdateItemParams) bool {
-	sets := make([]string, 0)
-	args := make([]any, 0)
-	if params.Title != nil {
-		sets = append(sets, "title = :title")
-		args = append(args, sql.Named("title", *params.Title))
-	}
-	if params.Status != nil {
-		sets = append(sets, "status = :status")
-		args = append(args, sql.Named("status", *params.Status))
-	}
-	if params.LastArrived != nil {
-		sets = append(sets, "last_arrived = :last_arrived")
-		args = append(args, sql.Named("last_arrived", *params.LastArrived))
-	}
-	if len(sets) == 0 {
+	if params.Status == nil {
 		return true
 	}
-	args = append(args, sql.Named("id", id))
-	query := fmt.Sprintf("update items set %s where id = :id", strings.Join(sets, ", "))
-	_, err := s.db.Exec(query, args...)
+	_, err := s.db.Exec(`update items set status = :status where id = :id`,
+		sql.Named("status", *params.Status),
+		sql.Named("id", id),
+	)
 	return err == nil
 }
 
 func (s *SQLiteStorage) DeleteItem(id int64) bool {
 	_, err := s.db.Exec(`delete from items where id = :id`, sql.Named("id", id))
-	return err == nil
-}
-
-func (s *SQLiteStorage) UpdateItemStatus(item_id int64, status model.ItemStatus) bool {
-	_, err := s.db.Exec(`update items set status = :status where id = :id`,
-		sql.Named("status", status),
-		sql.Named("id", item_id),
-	)
 	return err == nil
 }
 

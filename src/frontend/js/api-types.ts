@@ -55,6 +55,7 @@ export interface FeedStat {
 
 export interface StatusResponse {
   running: number;
+  refresh: boolean;
   stats: FeedStat[];
 }
 

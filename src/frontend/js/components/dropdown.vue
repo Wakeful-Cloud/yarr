@@ -1,6 +1,6 @@
 <template>
   <div class="position-relative d-inline-flex flex-column">
-    <button class="c-button-pill" :class="toggleClass" @click="toggle">
+    <button class="c-button-pill" :class="toggleClass" @click="toggle" :title="$props.title">
       <slot name="button"></slot>
     </button>
     <div

@@ -1,28 +1,45 @@
 <template>
-  <time :datetime="val">{{ formatted }}</time>
+  <time :datetime="val" :title="title">{{ formatted }}</time>
 </template>
 
 <script lang="ts">
-import { dateRepr } from "../utils";
+import { dateRepr, dateTimeString, relRepaintDelay } from "../utils";
 import { defineComponent } from "vue";
 
 export default defineComponent({
-  props: ["val"],
+  props: ["val", "locale"],
   data() {
-    var d = new Date(this.val);
     return {
-      date: d,
-      formatted: dateRepr(d),
-      interval: undefined as number | undefined,
+      date: new Date(this.val),
+      formatted: "" as string,
+      timer: undefined as number | undefined,
     };
   },
-  mounted() {
-    this.interval = setInterval(() => {
-      this.formatted = dateRepr(this.date);
-    }, 600000); // every 10 minutes
+  computed: {
+    title(): string {
+      return dateTimeString(this.date, this.locale);
+    },
+  },
+  created() {
+    this.repaint();
   },
   unmounted() {
-    clearInterval(this.interval);
+    window.clearTimeout(this.timer);
+  },
+  methods: {
+    repaint() {
+      this.formatted = dateRepr(this.date, this.locale);
+      window.clearTimeout(this.timer);
+      const delay = relRepaintDelay(this.date);
+      if (delay !== null) {
+        this.timer = window.setTimeout(() => this.repaint(), delay);
+      }
+    },
+  },
+  watch: {
+    locale() {
+      this.repaint();
+    },
   },
 });
 </script>

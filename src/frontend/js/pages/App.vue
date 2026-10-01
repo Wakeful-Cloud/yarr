@@ -45,12 +45,15 @@
             <v-icon name="more-horizontal" />
           </template>
 
-          <button class="c-dropdown-item w-100 text-start" @click="showModal = 'newfeed'">
+          <button class="c-dropdown-item w-100 text-start d-flex gap-1" @click="showModal = 'newfeed'">
             <v-icon class="me-1" name="plus" />
             {{ $t("new_feed") }}
           </button>
-          <div class="c-dropdown-divider"></div>
-          <button class="c-dropdown-item w-100 text-start" @click="fetchAllFeeds()">
+          <div class="c-dropdown-divider" v-if="refreshAvailable"></div>
+          <button
+            class="c-dropdown-item w-100 text-start d-flex gap-1"
+            @click="fetchAllFeeds()"
+            v-if="refreshAvailable">
             <v-icon class="me-1" name="rotate-cw" />
             {{ $t("refresh_feeds") }}
           </button>
@@ -71,14 +74,14 @@
               v-for="t in ['light', 'sepia', 'night', 'system']"></button>
           </div>
 
-          <div class="c-dropdown-divider"></div>
+          <div class="c-dropdown-divider" v-if="refreshAvailable"></div>
 
-          <header class="c-dropdown-header" role="heading" aria-level="2">
+          <header class="c-dropdown-header" role="heading" aria-level="2" v-if="refreshAvailable">
             {{ $t("auto_refresh") }}
           </header>
-          <div class="row text-center m-0">
+          <div class="row text-center m-0" v-if="refreshAvailable">
             <button
-              class="c-dropdown-item col-4 px-0"
+              class="c-dropdown-item col-4 px-0 d-flex gap-1 justify-content-center"
               @click.stop="changeRefreshRate(-1)"
               :disabled="!refreshRate">
               <v-icon name="chevron-down" />
@@ -87,7 +90,7 @@
               {{ refreshRateTitle }}
             </div>
             <button
-              class="c-dropdown-item col-4 px-0"
+              class="c-dropdown-item col-4 px-0 d-flex gap-1 justify-content-center"
               @click.stop="changeRefreshRate(1)"
               :disabled="refreshRate === refreshRateOptions[refreshRateOptions.length - 1].value">
               <v-icon name="chevron-up" />
@@ -127,19 +130,19 @@
               name="opml"
               style="opacity: 0; width: 1px; height: 0; position: absolute; z-index: -1" />
             <label
-              class="c-dropdown-item mb-0 cursor-pointer w-100"
+              class="c-dropdown-item mb-0 cursor-pointer w-100 d-flex gap-1"
               for="opml-import"
               @click.stop="">
               <v-icon class="me-1" name="download" />
               {{ $t("import") }}
             </label>
           </form>
-          <a class="c-dropdown-item d-block text-start text-decoration-none" href="./opml/export">
+          <a class="c-dropdown-item d-block text-start text-decoration-none d-flex gap-1" href="./opml/export">
             <v-icon class="me-1" name="upload" />
             {{ $t("export") }}
           </a>
           <div class="c-dropdown-divider"></div>
-          <button class="c-dropdown-item w-100 text-start" @click="showModal = 'shortcuts'">
+          <button class="c-dropdown-item w-100 text-start d-flex gap-1" @click="showModal = 'shortcuts'">
             <v-icon class="me-1" name="help-circle" />
             {{ $t("shortcuts") }}
           </button>
@@ -225,11 +228,11 @@
           <template v-slot:button>
             <v-icon name="more-horizontal" />
           </template>
-          <header class="c-dropdown-header" role="heading" aria-level="2">
+          <header class="c-dropdown-header text-break line-clamp-3" role="heading" aria-level="2">
             {{ current?.feed?.title }}
           </header>
           <a
-            class="c-dropdown-item d-block text-start text-decoration-none"
+            class="c-dropdown-item text-start text-decoration-none d-flex gap-1"
             :href="current?.feed?.link"
             rel="noopener noreferrer"
             target="_blank"
@@ -239,7 +242,7 @@
             {{ $t("website") }}
           </a>
           <a
-            class="c-dropdown-item d-block text-start text-decoration-none"
+            class="c-dropdown-item text-start text-decoration-none d-flex gap-1"
             :href="current.feed.feed_link"
             rel="noopener noreferrer"
             target="_blank"
@@ -249,12 +252,12 @@
             {{ $t("feed_link") }}
           </a>
           <div class="c-dropdown-divider" v-if="current.feed.link || current.feed.feed_link"></div>
-          <button class="c-dropdown-item w-100 text-start" @click="renameFeed(current.feed)">
+          <button class="c-dropdown-item w-100 text-start d-flex gap-1" @click="renameFeed(current.feed)">
             <v-icon class="me-1" name="edit" />
             {{ $t("rename") }}
           </button>
           <button
-            class="c-dropdown-item w-100 text-start"
+            class="c-dropdown-item w-100 text-start d-flex gap-1"
             @click="updateFeedLink(current.feed)"
             v-if="current.feed.feed_link">
             <v-icon class="me-1" name="edit" />
@@ -266,29 +269,29 @@
           </header>
           <template v-for="folder in folders">
             <button
-              class="c-dropdown-item w-100 text-start"
+              class="c-dropdown-item w-100 text-start d-flex gap-1"
               v-if="folder.id != current.feed.folder_id"
               @click="moveFeed(current.feed, folder.id)">
               <v-icon class="me-1" name="folder" />
-              {{ folder.title }}
+              <span class="text-break line-clamp-3">{{ folder.title }}</span>
             </button>
           </template>
           <button
-            class="c-dropdown-item w-100 text-start opacity-75"
+            class="c-dropdown-item w-100 text-start opacity-75 d-flex gap-1"
             @click="moveFeed(current.feed, null)"
             v-if="current.feed.folder_id">
             <v-icon class="me-1" name="folder-minus" />
             ──
           </button>
           <button
-            class="c-dropdown-item w-100 text-start opacity-75"
+            class="c-dropdown-item w-100 text-start opacity-75 d-flex gap-1"
             @click="moveFeedToNewFolder(current.feed)">
             <v-icon class="me-1" name="folder-plus" />
             {{ $t("new_folder") }}
           </button>
           <div class="c-dropdown-divider"></div>
           <button
-            class="c-dropdown-item w-100 text-start text-danger"
+            class="c-dropdown-item w-100 text-start text-danger d-flex gap-1"
             @click.prevent="deleteFeed(current.feed)">
             <v-icon class="me-1" name="trash" />
             {{ $t("delete") }}
@@ -302,16 +305,16 @@
           <template v-slot:button>
             <v-icon name="more-horizontal" />
           </template>
-          <header class="c-dropdown-header" role="heading" aria-level="2">
+          <header class="c-dropdown-header text-break line-clamp-3" role="heading" aria-level="2">
             {{ current?.folder?.title }}
           </header>
-          <button class="c-dropdown-item w-100 text-start" @click="renameFolder(current.folder)">
+          <button class="c-dropdown-item w-100 text-start d-flex gap-1" @click="renameFolder(current.folder)">
             <v-icon class="me-1" name="edit" />
             {{ $t("rename") }}
           </button>
           <div class="c-dropdown-divider"></div>
           <button
-            class="c-dropdown-item w-100 text-start text-danger"
+            class="c-dropdown-item w-100 text-start text-danger d-flex gap-1"
             @click="deleteFolder(current.folder)">
             <v-icon class="me-1" name="trash" />
             {{ $t("delete") }}
@@ -348,9 +351,7 @@
             <small class="flex-fill text-truncate me-1">
               {{ (feedsById[item.feed_id] || {}).title }}
             </small>
-            <small class="flex-shrink-0"
-              ><v-relative-time v-bind:title="formatDate(item.date)" :val="item.date"
-            /></small>
+            <small class="flex-shrink-0"><v-relative-time :val="item.date" :locale="language" /></small>
           </div>
           <div class="text-break line-clamp-3">{{ item.title || $t("untitled") }}</div>
         </div>
@@ -518,7 +519,7 @@
 <script lang="ts">
 import type { Lang } from "../i18n";
 import api, { NetworkError, HTTPError } from "../api";
-import { scrollto, debounce, debounceMixin, to } from "../utils";
+import { scrollto, debounce, debounceMixin, to, dateTimeString } from "../utils";
 import drag from "../components/drag.vue";
 import dropdown from "../components/dropdown.vue";
 import modal from "../components/modal.vue";
@@ -638,6 +639,7 @@ export default defineComponent({
       },
 
       showModal: "" as "" | "shortcuts" | "newfeed",
+      refreshAvailable: true,
       loading: {
         feeds: 0,
         items: false,
@@ -949,6 +951,7 @@ export default defineComponent({
       if (loopMode && !this.itemSelected) this.refreshItems();
 
       this.loading.feeds = data.running;
+      this.refreshAvailable = data.refresh;
       if (data.running) {
         setTimeout(() => this.refreshStats(true), 500);
       }
@@ -1085,14 +1088,7 @@ export default defineComponent({
       }
     },
     formatDate(datestr: string) {
-      const options: Intl.DateTimeFormatOptions = {
-        year: "numeric",
-        month: "long",
-        day: "numeric",
-        hour: "2-digit",
-        minute: "2-digit",
-      };
-      return new Date(datestr).toLocaleDateString(undefined, options);
+      return dateTimeString(new Date(datestr), this.language);
     },
     async moveFeed(feed: Feed, folder_id: number | null) {
       const [err] = await to(api.feeds.update(feed.id, { folder_id }));

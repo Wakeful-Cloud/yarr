@@ -58,7 +58,9 @@ export const debounceMixin = {
   },
 };
 
-export function dateRepr(d: Date): string {
+export type RelUnit = "minute" | "hour" | "day";
+
+export function dateRepr(d: Date, locale?: string): string {
   var sec = (new Date().getTime() - d.getTime()) / 1000;
   var neg = sec < 0;
   var out = "";
@@ -66,22 +68,76 @@ export function dateRepr(d: Date): string {
   sec = Math.abs(sec);
   if (sec < 2700)
     // less than 45 minutes
-    out = Math.round(sec / 60) + "m";
+    out = formatRel(Math.round(sec / 60), "minute", locale);
   else if (sec < 86400)
     // less than 24 hours
-    out = Math.round(sec / 3600) + "h";
+    out = formatRel(Math.round(sec / 3600), "hour", locale);
   else if (sec < 604800)
     // less than a week
-    out = Math.round(sec / 86400) + "d";
+    out = formatRel(Math.round(sec / 86400), "day", locale);
   else
-    out = d.toLocaleDateString(undefined, {
-      year: "numeric",
-      month: "long",
-      day: "numeric",
-    });
+    return dateString(d, locale);
 
   if (neg) return "-" + out;
   return out;
+}
+
+export function dateString(d: Date, locale?: string): string {
+  if (locale == "en") locale = "en-GB";  // empire strikes back
+  return d.toLocaleDateString(locale, {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+  })
+}
+
+export function dateTimeString(d: Date, locale: string): string {
+  if (locale == "en") locale = "en-GB";  // empire strikes back
+  return d.toLocaleDateString(locale, {
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+function formatRel(n: number, unit: RelUnit, locale?: string): string {
+  return new Intl.NumberFormat(locale, { style: "unit", unit }).format(n);
+}
+
+// returns ms until relative text rendered by dateRepr would change,
+// or null when static (older than a week).
+export function relRepaintDelay(d: Date): number | null {
+  const sec = (Date.now() - d.getTime()) / 1000;
+  if (isNaN(sec)) return null;
+
+  if (sec >= 0) {
+    let unit: number;
+    if (sec < 2700) {
+      // less than 45 minutes
+      unit = 60;
+    } else if (sec < 86400) {
+      // less than 24 hours
+      unit = 3600;
+    } else if (sec < 604800) {
+      // less than a week
+      unit = 86400;
+    } else {
+      // older than a week
+      return null;
+    }
+
+    const next = (Math.round(sec / unit) + 0.5) * unit;
+    const delay = next - sec;
+    return Math.max(delay * 1000, 1000);
+  } else {
+    // future dates
+    if (Math.abs(sec) >= 604800) {
+      return null;
+    }
+    return 60 * 1000;
+  }
 }
 
 export async function to<T, E = Error>(

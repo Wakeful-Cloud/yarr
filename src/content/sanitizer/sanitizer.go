@@ -1,13 +1,6 @@
-// Copyright 2017 Frédéric Guillot. All rights reserved.
-// Use of this source code is governed by the Apache 2.0
-// license that can be found in the LICENSE file.
-
 package sanitizer
 
 import (
-	"bytes"
-	"fmt"
-	"io"
 	"regexp"
 	"slices"
 	"strconv"
@@ -21,180 +14,209 @@ var splitSrcsetRegex = regexp.MustCompile(`,\s+`)
 
 // Sanitize returns safe HTML.
 func Sanitize(baseURL, input string) string {
-	var buffer bytes.Buffer
-	var tagStack []string
-	var parentTag string
-	blacklistedTagDepth := 0
+	doc, err := html.Parse(strings.NewReader("<body>" + input + "</body>"))
+	if err != nil {
+		return ""
+	}
 
-	tokenizer := html.NewTokenizer(bytes.NewBufferString(input))
-	for {
-		if tokenizer.Next() == html.ErrorToken {
-			err := tokenizer.Err()
-			if err == io.EOF {
-				return buffer.String()
-			}
-
-			return ""
-		}
-
-		token := tokenizer.Token()
-		switch token.Type {
-		case html.TextToken:
-			if blacklistedTagDepth > 0 {
-				continue
-			}
-
-			// An iframe element never has fallback content.
-			// See https://www.w3.org/TR/2010/WD-html5-20101019/the-iframe-element.html#the-iframe-element
-			if parentTag == "iframe" {
-				continue
-			}
-
-			buffer.WriteString(html.EscapeString(token.Data))
-		case html.StartTagToken:
-			tagName := token.Data
-			parentTag = tagName
-
-			if isValidTag(tagName) {
-				attrNames, htmlAttributes := sanitizeAttributes(baseURL, tagName, token.Attr)
-
-				if hasRequiredAttributes(tagName, attrNames) {
-					wrap := isVideoIframe(token)
-					if wrap {
-						buffer.WriteString(`<div class="video-wrapper">`)
-					}
-
-					if len(attrNames) > 0 {
-						buffer.WriteString("<" + tagName + " " + htmlAttributes + ">")
-					} else {
-						buffer.WriteString("<" + tagName + ">")
-					}
-
-					if tagName == "iframe" {
-						// autoclose iframes
-						buffer.WriteString("</iframe>")
-						if wrap {
-							buffer.WriteString("</div>")
-						}
-					} else {
-						tagStack = append(tagStack, tagName)
-					}
-				}
-			} else if isBlockedTag(tagName) {
-				blacklistedTagDepth++
-			}
-		case html.EndTagToken:
-			tagName := token.Data
-			// iframes are autoclosed. see above
-			if tagName == "iframe" {
-				continue
-			}
-			if isValidTag(tagName) && inList(tagName, tagStack) {
-				buffer.WriteString(fmt.Sprintf("</%s>", tagName))
-			} else if isBlockedTag(tagName) {
-				blacklistedTagDepth--
-			}
-		case html.SelfClosingTagToken:
-			tagName := token.Data
-			if isValidTag(tagName) {
-				attrNames, htmlAttributes := sanitizeAttributes(baseURL, tagName, token.Attr)
-
-				if hasRequiredAttributes(tagName, attrNames) {
-					if len(attrNames) > 0 {
-						buffer.WriteString("<" + tagName + " " + htmlAttributes + "/>")
-					} else {
-						buffer.WriteString("<" + tagName + "/>")
-					}
+	var body *html.Node
+	for root := doc.FirstChild; root != nil; root = root.NextSibling {
+		if root.Type == html.ElementNode && root.Data == "html" {
+			for node := root.FirstChild; node != nil; node = node.NextSibling {
+				if node.Type == html.ElementNode && node.Data == "body" {
+					body = node
 				}
 			}
 		}
 	}
+	if body == nil {
+		return ""
+	}
+
+	sanitizeChildren(body, baseURL)
+
+	var buffer strings.Builder
+	for node := body.FirstChild; node != nil; node = node.NextSibling {
+		if err := html.Render(&buffer, node); err != nil {
+			return ""
+		}
+	}
+	return buffer.String()
 }
 
-func sanitizeAttributes(baseURL, tagName string, attributes []html.Attribute) ([]string, string) {
-	var htmlAttrs, attrNames []string
+func sanitizeChildren(parent *html.Node, baseURL string) {
+	for node := parent.FirstChild; node != nil; {
+		next := node.NextSibling
+		switch node.Type {
+		case html.ElementNode:
+			sanitizeElement(parent, node, baseURL)
+		case html.CommentNode, html.DoctypeNode:
+			parent.RemoveChild(node)
+		}
+		node = next
+	}
+}
 
-	for _, attribute := range attributes {
+func sanitizeElement(parent, node *html.Node, baseURL string) {
+	tag := node.Data
+
+	if isBlockedTag(tag) {
+		parent.RemoveChild(node)
+		return
+	}
+
+	// Children are sanitized first so that descendants of elements that end
+	// up being removed or promoted have already been cleaned up.
+	sanitizeChildren(node, baseURL)
+
+	if !isValidTag(tag) {
+		promoteChildren(parent, node)
+		return
+	}
+
+	attrNames := sanitizeAttributes(baseURL, node)
+	if !hasRequiredAttributes(tag, attrNames) {
+		if tag == "iframe" {
+			// A blocked iframe should not have its inner content rendered.
+			parent.RemoveChild(node)
+			return
+		}
+		promoteChildren(parent, node)
+		return
+	}
+
+	if isVideoIframe(node) {
+		wrap := &html.Node{
+			Type: html.ElementNode,
+			Data: "div",
+			Attr: []html.Attribute{{Key: "class", Val: "video-wrapper"}},
+		}
+		next := node.NextSibling
+		parent.RemoveChild(node)
+		parent.InsertBefore(wrap, next)
+		wrap.AppendChild(node)
+	}
+
+	if node.Data == "iframe" {
+		// An iframe element never has fallback content.
+		removeChildren(node)
+	}
+}
+
+func removeChildren(node *html.Node) {
+	for node.FirstChild != nil {
+		node.RemoveChild(node.FirstChild)
+	}
+}
+
+// promoteChildren replaces node with its (already sanitized) children.
+func promoteChildren(parent, node *html.Node) {
+	for node.FirstChild != nil {
+		child := node.FirstChild
+		node.RemoveChild(child)
+		parent.InsertBefore(child, node)
+	}
+	parent.RemoveChild(node)
+}
+
+func sanitizeAttributes(baseURL string, node *html.Node) []string {
+	var attrNames []string
+	var attrs []html.Attribute
+	tagName := node.Data
+
+	for _, attribute := range node.Attr {
+		// attribute names are case-insensitive; the parser may preserve
+		// the original casing, while the allowlist is lowercase.
+		key := strings.ToLower(attribute.Key)
 		value := attribute.Val
 
-		if !isValidAttribute(tagName, attribute.Key) {
+		if !isValidAttribute(tagName, key) {
 			continue
 		}
 
-		if (tagName == "img" || tagName == "source") && attribute.Key == "srcset" {
+		if (tagName == "img" || tagName == "source") && key == "srcset" {
 			value = sanitizeSrcsetAttr(baseURL, value)
 		}
 
-		if isExternalResourceAttribute(attribute.Key) {
+		if isExternalResourceAttribute(key) {
 			if tagName == "iframe" {
 				if isValidIframeSource(baseURL, attribute.Val) {
 					value = attribute.Val
 				} else {
 					continue
 				}
-			} else if tagName == "img" && attribute.Key == "src" && isValidDataAttribute(attribute.Val) {
+			} else if tagName == "img" && key == "src" && isValidDataAttribute(attribute.Val) {
 				value = attribute.Val
 			} else {
 				value = htmlutil.AbsoluteUrl(value, baseURL)
 				if value == "" {
 					continue
 				}
-
 				if !hasValidURIScheme(value) || isBlockedResource(value) {
 					continue
 				}
 			}
 		}
 
-		attrNames = append(attrNames, attribute.Key)
-		htmlAttrs = append(
-			htmlAttrs,
-			fmt.Sprintf(`%s="%s"`, attribute.Key, html.EscapeString(value)),
-		)
+		attrNames = append(attrNames, key)
+		attrs = append(attrs, html.Attribute{Key: key, Val: value})
 	}
 
-	extraAttrNames, extraHTMLAttributes := getExtraAttributes(tagName)
-	if len(extraAttrNames) > 0 {
-		attrNames = append(attrNames, extraAttrNames...)
-		htmlAttrs = append(htmlAttrs, extraHTMLAttributes...)
-	}
+	extraNames, extraAttrs := extraAttributes(tagName)
+	attrNames = append(attrNames, extraNames...)
+	attrs = append(attrs, extraAttrs...)
 
-	return attrNames, strings.Join(htmlAttrs, " ")
+	node.Attr = attrs
+	return attrNames
 }
 
-func getExtraAttributes(tagName string) ([]string, []string) {
+func extraAttributes(tagName string) ([]string, []html.Attribute) {
 	switch tagName {
 	case "a":
-		return []string{
-			"rel",
-			"target",
-			"referrerpolicy",
-		}, []string{
-			`rel="noopener noreferrer"`,
-			`target="_blank"`,
-			`referrerpolicy="no-referrer"`,
+		return []string{"rel", "target", "referrerpolicy"}, []html.Attribute{
+			{Key: "rel", Val: "noopener noreferrer"},
+			{Key: "target", Val: "_blank"},
+			{Key: "referrerpolicy", Val: "no-referrer"},
 		}
 	case "video", "audio":
-		return []string{"controls"}, []string{"controls"}
+		return []string{"controls"}, []html.Attribute{{Key: "controls"}}
 	case "iframe":
-		return []string{
-			"sandbox",
-			"loading",
-		}, []string{
-			`sandbox="allow-scripts allow-same-origin allow-popups"`,
-			`loading="lazy"`,
+		return []string{"sandbox", "loading"}, []html.Attribute{
+			{Key: "sandbox", Val: "allow-scripts allow-same-origin allow-popups"},
+			{Key: "loading", Val: "lazy"},
 		}
 	case "img":
-		return []string{"loading"}, []string{`loading="lazy"`, `referrerpolicy="no-referrer"`}
+		return []string{"loading", "referrerpolicy"}, []html.Attribute{
+			{Key: "loading", Val: "lazy"},
+			{Key: "referrerpolicy", Val: "no-referrer"},
+		}
 	default:
 		return nil, nil
 	}
 }
 
+func isVideoIframe(node *html.Node) bool {
+	if node.Data != "iframe" {
+		return false
+	}
+	videoWhitelist := map[string]bool{
+		"player.bilibili.com":      true,
+		"player.vimeo.com":         true,
+		"www.dailymotion.com":      true,
+		"www.youtube-nocookie.com": true,
+		"www.youtube.com":          true,
+	}
+	for _, attr := range node.Attr {
+		if attr.Key == "src" {
+			domain := htmlutil.URLDomain(attr.Val)
+			return videoWhitelist[domain]
+		}
+	}
+	return false
+}
+
 func isValidTag(tagName string) bool {
-	x := allowedTags.has(tagName) || allowedSvgTags.has(tagName) || allowedSvgFilters.has(tagName)
-	//fmt.Println(tagName, x)
-	return x
+	return allowedTags.has(tagName) || allowedSvgTags.has(tagName) || allowedSvgFilters.has(tagName)
 }
 
 func isValidAttribute(tagName, attributeName string) bool {
@@ -230,15 +252,12 @@ func hasRequiredAttributes(tagName string, attributes []string) bool {
 					return true
 				}
 			}
-
 			return false
 		}
 	}
-
 	return true
 }
 
-// See https://www.iana.org/assignments/uri-schemes/uri-schemes.xhtml
 func hasValidURIScheme(src string) bool {
 	scheme, _, _ := strings.Cut(src, ":")
 	return allowedURISchemes.has(scheme)
@@ -253,14 +272,9 @@ func isBlockedResource(src string) bool {
 		"twitter.com/share",
 		"feeds.feedburner.com",
 	}
-
-	for _, element := range blacklist {
-		if strings.Contains(src, element) {
-			return true
-		}
-	}
-
-	return false
+	return slices.ContainsFunc(blacklist, func(element string) bool {
+		return strings.Contains(src, element)
+	})
 }
 
 func isValidIframeSource(baseURL, src string) bool {
@@ -283,93 +297,17 @@ func isValidIframeSource(baseURL, src string) bool {
 	if htmlutil.URLDomain(baseURL) == domain {
 		return true
 	}
-
 	return slices.Contains(whitelist, domain)
 }
 
-func getTagAllowList() map[string][]string {
-	whitelist := make(map[string][]string)
-	whitelist["img"] = []string{"alt", "title", "src", "srcset", "sizes"}
-	whitelist["picture"] = []string{}
-	whitelist["audio"] = []string{"src"}
-	whitelist["video"] = []string{"poster", "height", "width", "src"}
-	whitelist["source"] = []string{"src", "type", "srcset", "sizes", "media"}
-	whitelist["dt"] = []string{}
-	whitelist["dd"] = []string{}
-	whitelist["dl"] = []string{}
-	whitelist["table"] = []string{}
-	whitelist["caption"] = []string{}
-	whitelist["thead"] = []string{}
-	whitelist["tfooter"] = []string{}
-	whitelist["tr"] = []string{}
-	whitelist["td"] = []string{"rowspan", "colspan"}
-	whitelist["th"] = []string{"rowspan", "colspan"}
-	whitelist["h1"] = []string{}
-	whitelist["h2"] = []string{}
-	whitelist["h3"] = []string{}
-	whitelist["h4"] = []string{}
-	whitelist["h5"] = []string{}
-	whitelist["h6"] = []string{}
-	whitelist["strong"] = []string{}
-	whitelist["em"] = []string{}
-	whitelist["code"] = []string{}
-	whitelist["pre"] = []string{}
-	whitelist["blockquote"] = []string{}
-	whitelist["q"] = []string{"cite"}
-	whitelist["p"] = []string{}
-	whitelist["ul"] = []string{}
-	whitelist["li"] = []string{}
-	whitelist["ol"] = []string{}
-	whitelist["br"] = []string{}
-	whitelist["del"] = []string{}
-	whitelist["a"] = []string{"href", "title"}
-	whitelist["figure"] = []string{}
-	whitelist["figcaption"] = []string{}
-	whitelist["cite"] = []string{}
-	whitelist["time"] = []string{"datetime"}
-	whitelist["abbr"] = []string{"title"}
-	whitelist["acronym"] = []string{"title"}
-	whitelist["wbr"] = []string{}
-	whitelist["dfn"] = []string{}
-	whitelist["sub"] = []string{}
-	whitelist["sup"] = []string{}
-	whitelist["var"] = []string{}
-	whitelist["samp"] = []string{}
-	whitelist["s"] = []string{}
-	whitelist["del"] = []string{}
-	whitelist["ins"] = []string{}
-	whitelist["kbd"] = []string{}
-	whitelist["rp"] = []string{}
-	whitelist["rt"] = []string{}
-	whitelist["rtc"] = []string{}
-	whitelist["ruby"] = []string{}
-	whitelist["iframe"] = []string{"width", "height", "frameborder", "src", "allowfullscreen"}
-	return whitelist
-}
-
-func inList(needle string, haystack []string) bool {
-	return slices.Contains(haystack, needle)
-}
-
 func isBlockedTag(tagName string) bool {
-	blacklist := []string{
-		"noscript",
-		"script",
-		"style",
+	switch tagName {
+	case "noscript", "script", "style":
+		return true
 	}
-
-	return slices.Contains(blacklist, tagName)
+	return false
 }
 
-/*
-One or more strings separated by commas, indicating possible image sources for the user agent to use.
-
-Each string is composed of:
-- A URL to an image
-- Optionally, whitespace followed by one of:
-- A width descriptor (a positive integer directly followed by w). The width descriptor is divided by the source size given in the sizes attribute to calculate the effective pixel density.
-- A pixel density descriptor (a positive floating point number directly followed by x).
-*/
 func sanitizeSrcsetAttr(baseURL, value string) string {
 	var sanitizedSources []string
 	rawSources := splitSrcsetRegex.Split(value, -1)
@@ -422,30 +360,7 @@ func isValidDataAttribute(value string) bool {
 		"data:image/gif",
 		"data:image/webp",
 	}
-
-	for _, prefix := range dataAttributeAllowList {
-		if strings.HasPrefix(value, prefix) {
-			return true
-		}
-	}
-	return false
-}
-
-func isVideoIframe(token html.Token) bool {
-	videoWhitelist := map[string]bool{
-		"player.bilibili.com":      true,
-		"player.vimeo.com":         true,
-		"www.dailymotion.com":      true,
-		"www.youtube-nocookie.com": true,
-		"www.youtube.com":          true,
-	}
-	if token.Data == "iframe" {
-		for _, attr := range token.Attr {
-			if attr.Key == "src" {
-				domain := htmlutil.URLDomain(attr.Val)
-				return videoWhitelist[domain]
-			}
-		}
-	}
-	return false
+	return slices.ContainsFunc(dataAttributeAllowList, func(prefix string) bool {
+		return strings.HasPrefix(value, prefix)
+	})
 }
