@@ -114,16 +114,10 @@ func listQueryPredicate(filter model.ItemFilter, newestFirst bool) (string, []an
 		args = append(args, *filter.Status)
 	}
 	if filter.Search != nil {
-		words := strings.Fields(*filter.Search)
-		terms := make([]string, len(words))
-		for idx, word := range words {
-			terms[idx] = word + ":*"
-		}
-
 		cond = append(cond, fmt.Sprintf(
 			"i.search @@ websearch_to_tsquery('simple', $%d)", next(),
 		))
-		args = append(args, strings.Join(terms, " & "))
+		args = append(args, *filter.Search)
 	}
 	if filter.After != nil {
 		compare := ">"
@@ -255,11 +249,6 @@ func (s *PostgresStorage) UpdateItem(id int64, params model.UpdateItemParams) bo
 		return true
 	}
 	_, err := s.db.Exec(`update items set status = $1 where id = $2`, *params.Status, id)
-	return err == nil
-}
-
-func (s *PostgresStorage) DeleteItem(id int64) bool {
-	_, err := s.db.Exec(`delete from items where id = $1`, id)
 	return err == nil
 }
 

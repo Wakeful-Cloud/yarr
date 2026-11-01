@@ -9,8 +9,10 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/nkanaev/yarr/src/assets"
+	"github.com/nkanaev/yarr/src/client"
 	"github.com/nkanaev/yarr/src/platform"
 	"github.com/nkanaev/yarr/src/server"
 	"github.com/nkanaev/yarr/src/storage"
@@ -20,10 +22,7 @@ import (
 var Version string = "0.0"
 var GitHash string = "unknown"
 
-var OptList = make([]string, 0)
-
 func opt(envVar, defaultValue string) string {
-	OptList = append(OptList, envVar)
 	value := os.Getenv(envVar)
 	if value != "" {
 		return value
@@ -50,32 +49,79 @@ func parseAuthfile(authfile io.Reader) (username, password string, err error) {
 	return username, password, nil
 }
 
+func resolveDuration(raw string) (time.Duration, error) {
+	if raw == "" {
+		raw = "30s"
+	}
+
+	duration, err := time.ParseDuration(raw)
+	if err != nil {
+		return 0, err
+	}
+	if duration <= 0 {
+		return 0, fmt.Errorf("must be greater than zero")
+	}
+	return duration, nil
+}
+
 func main() {
 	platform.FixConsoleIfNeeded()
 
-	var addr, db, authfile, auth, certfile, keyfile, basepath, logfile string
+	var addr, db, authfile, auth, certfile, keyfile, basepath, logfile, clientTimeout string
 	var ver, open bool
 
 	flag.CommandLine.SetOutput(os.Stdout)
-
-	flag.Usage = func() {
-		out := flag.CommandLine.Output()
-		fmt.Fprintf(out, "Usage of %s:\n", os.Args[0])
-		flag.PrintDefaults()
-		fmt.Fprintln(out, "\nThe environmental variables, if present, will be used to provide\nthe default values for the params above:")
-		fmt.Fprintln(out, " ", strings.Join(OptList, ", "))
-	}
-
-	flag.StringVar(&addr, "addr", opt("YARR_ADDR", "127.0.0.1:7070"), "address to run server on")
-	flag.StringVar(&basepath, "base", opt("YARR_BASE", ""), "base path of the service url")
-	flag.StringVar(&authfile, "auth-file", opt("YARR_AUTHFILE", ""), "`path` to a file containing username:password. Takes precedence over --auth (or YARR_AUTH)")
-	flag.StringVar(&auth, "auth", opt("YARR_AUTH", ""), "string with username and password in the format `username:password`")
-	flag.StringVar(&certfile, "cert-file", opt("YARR_CERTFILE", ""), "`path` to cert file for https")
-	flag.StringVar(&keyfile, "key-file", opt("YARR_KEYFILE", ""), "`path` to key file for https")
-	flag.StringVar(&db, "db", opt("YARR_DB", ""), "storage file `path`")
-	flag.StringVar(&logfile, "log-file", opt("YARR_LOGFILE", ""), "`path` to log file to use instead of stdout")
-	flag.BoolVar(&ver, "version", false, "print application version")
-	flag.BoolVar(&open, "open", false, "open the server in browser")
+	flag.StringVar(
+		&addr,
+		"addr",
+		opt("YARR_ADDR", "127.0.0.1:7070"),
+		"listen `address` (host:port or unix:/path/socket)\n(env: YARR_ADDR)",
+	)
+	flag.StringVar(
+		&basepath,
+		"base",
+		opt("YARR_BASE", ""),
+		"`path` prefix for the service url, e.g. /news\n(env: YARR_BASE)",
+	)
+	flag.StringVar(
+		&authfile,
+		"auth-file",
+		opt("YARR_AUTHFILE", ""),
+		"`path` to a file with username:password,\ntakes precedence over -auth\n(env: YARR_AUTHFILE)",
+	)
+	flag.StringVar(
+		&auth,
+		"auth",
+		opt("YARR_AUTH", ""),
+		"credentials as `username:password`\n(env: YARR_AUTH)",
+	)
+	flag.StringVar(
+		&certfile,
+		"cert-file",
+		opt("YARR_CERTFILE", ""),
+		"`path` to the TLS certificate file, requires -key-file\n(env: YARR_CERTFILE)",
+	)
+	flag.StringVar(
+		&keyfile,
+		"key-file",
+		opt("YARR_KEYFILE", ""),
+		"`path` to the TLS private key file, requires -cert-file\n(env: YARR_KEYFILE)",
+	)
+	flag.StringVar(&db, "db", opt("YARR_DB", ""), "storage database `path`\n(env: YARR_DB)")
+	flag.StringVar(
+		&logfile,
+		"log-file",
+		opt("YARR_LOGFILE", ""),
+		"`path` to the log file, defaults to stdout\n(env: YARR_LOGFILE)",
+	)
+	flag.StringVar(
+		&clientTimeout,
+		"client-timeout",
+		opt("YARR_CLIENT_TIMEOUT", "30s"),
+		"overall HTTP `timeout` for feed and site fetches, e.g. 120s or 2m\n(env: YARR_CLIENT_TIMEOUT)",
+	)
+	flag.BoolVar(&ver, "version", false, "print version and exit")
+	flag.BoolVar(&open, "open", false, "open the server url in the default browser")
 	flag.Parse()
 
 	if ver {
@@ -114,8 +160,9 @@ func main() {
 
 	log.Printf("using db file %s", db)
 
-	var username, password string
 	var err error
+
+	var username, password string
 	if authfile != "" {
 		f, err := os.Open(authfile)
 		if err != nil {
@@ -142,7 +189,22 @@ func main() {
 		log.Fatal("Failed to initialise database: ", err)
 	}
 
-	worker.SetVersion(Version)
+	timeoutDuration, err := resolveDuration(clientTimeout)
+	if err != nil {
+		log.Fatal("Invalid client timeout: ", err)
+	}
+
+	httpTimeout := client.DefaultTimeout()
+	httpTimeout.Request = timeoutDuration
+	httpTimeout.ResponseHeader = 0
+	httpClient := client.NewBuilder().
+		Timeout(httpTimeout).
+		Middleware(
+			client.UserAgent("Yarr/"+Version),
+			client.ConditionalRequests(worker.NewFeedStateStore(store)),
+		).
+		Build()
+
 	srv := server.NewServer(addr)
 	srv.StaticFS = assets.StaticFS()
 	srv.Template = assets.Templates()
@@ -156,13 +218,14 @@ func main() {
 		srv.KeyFile = keyfile
 	}
 
-	wrk := worker.NewWorker(store)
+	wrk := worker.NewWorker(store, httpClient)
 
 	if username != "" && password != "" {
 		srv.Auth = server.NewLocalAuthProvider(username, password, basepath)
 	}
 	srv.Storage = server.NewLocalStorage(store)
 	srv.Scheduler = wrk
+	srv.Ingestor = wrk
 
 	log.Printf("starting server at %s", srv.GetAddr())
 	if open {

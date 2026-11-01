@@ -2,20 +2,25 @@ package worker
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"io"
 	"mime"
 	"net/http"
 	"net/url"
-	"strings"
-	"time"
 
 	"github.com/nkanaev/yarr/src/content/scraper"
 	"github.com/nkanaev/yarr/src/parser"
-	"github.com/nkanaev/yarr/src/storage"
 	"github.com/nkanaev/yarr/src/storage/model"
 	"golang.org/x/net/html/charset"
+)
+
+const (
+	// maxBodySize limits feed responses, discovery pages, and favicon scan pages.
+	maxBodySize = 10e6 // 10 MB
+	// maxIconSize limits downloaded favicon images.
+	maxIconSize = 1e6 // 1 MB
 )
 
 type DiscoverResult struct {
@@ -24,10 +29,19 @@ type DiscoverResult struct {
 	Sources  []scraper.FeedLink
 }
 
-func DiscoverFeed(candidateUrl string) (*DiscoverResult, error) {
+func DiscoverFeed(c *http.Client, candidateUrl string) (*DiscoverResult, error) {
+	return discoverFeed(c, candidateUrl, make(map[string]struct{}))
+}
+
+func discoverFeed(c *http.Client, candidateUrl string, visited map[string]struct{}) (*DiscoverResult, error) {
+	if _, ok := visited[candidateUrl]; ok {
+		return nil, errors.New("recursion")
+	}
+	visited[candidateUrl] = struct{}{}
+
 	result := &DiscoverResult{}
 	// Query URL
-	res, err := client.get(candidateUrl)
+	res, err := c.Get(candidateUrl)
 	if err != nil {
 		return nil, err
 	}
@@ -37,7 +51,7 @@ func DiscoverFeed(candidateUrl string) (*DiscoverResult, error) {
 	}
 	cs := getCharset(res)
 
-	body, err := io.ReadAll(res.Body)
+	body, err := io.ReadAll(http.MaxBytesReader(nil, res.Body, maxBodySize))
 	if err != nil {
 		return nil, err
 	}
@@ -64,10 +78,7 @@ func DiscoverFeed(candidateUrl string) (*DiscoverResult, error) {
 	case len(sources) == 0:
 		return nil, errors.New("no feeds found at the given url")
 	case len(sources) == 1:
-		if sources[0].URL == candidateUrl {
-			return nil, errors.New("recursion")
-		}
-		return DiscoverFeed(sources[0].URL)
+		return discoverFeed(c, sources[0].URL, visited)
 	}
 
 	result.Sources = sources
@@ -82,7 +93,7 @@ var imageTypes = map[string]bool{
 	"image/gif":    true,
 }
 
-func findFavicon(siteUrl, feedUrl string) (*model.Icon, error) {
+func findFavicon(c *http.Client, siteUrl, feedUrl string) (*model.Icon, error) {
 	urls := make([]string, 0)
 
 	favicon := func(link string) string {
@@ -94,9 +105,9 @@ func findFavicon(siteUrl, feedUrl string) (*model.Icon, error) {
 	}
 
 	if siteUrl != "" {
-		if res, err := client.get(siteUrl); err == nil {
+		if res, err := c.Get(siteUrl); err == nil {
 			defer res.Body.Close()
-			if body, err := io.ReadAll(res.Body); err == nil {
+			if body, err := io.ReadAll(http.MaxBytesReader(nil, res.Body, maxBodySize)); err == nil {
 				urls = append(urls, scraper.FindIcons(string(body), siteUrl)...)
 				if c := favicon(siteUrl); c != "" {
 					urls = append(urls, c)
@@ -110,7 +121,7 @@ func findFavicon(siteUrl, feedUrl string) (*model.Icon, error) {
 	}
 
 	for _, u := range urls {
-		res, err := client.get(u)
+		res, err := c.Get(u)
 		if err != nil {
 			continue
 		}
@@ -119,7 +130,7 @@ func findFavicon(siteUrl, feedUrl string) (*model.Icon, error) {
 			continue
 		}
 
-		content, err := io.ReadAll(res.Body)
+		content, err := io.ReadAll(http.MaxBytesReader(nil, res.Body, maxIconSize))
 		if err != nil {
 			continue
 		}
@@ -154,15 +165,14 @@ func ConvertItems(items []parser.Item, feed model.Feed) []model.Item {
 	return result
 }
 
-func listItems(f model.Feed, db storage.Storage) ([]model.Item, error) {
-	lmod := ""
-	etag := ""
-	if state, _ := db.GetFeedState(f.Id); state != nil {
-		lmod = state.HTTPLastModified
-		etag = state.HTTPEtag
+func listItems(c *http.Client, f model.Feed) ([]model.Item, error) {
+	ctx := contextSetFeedID(context.Background(), f.Id)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, f.FeedLink, nil)
+	if err != nil {
+		return nil, err
 	}
 
-	res, err := client.getConditional(f.FeedLink, lmod, etag)
+	res, err := c.Do(req)
 	if err != nil {
 		return nil, err
 	}
@@ -178,21 +188,11 @@ func listItems(f model.Feed, db storage.Storage) ([]model.Item, error) {
 		return nil, nil
 	}
 
-	feed, err := parser.ParseAndFix(res.Body, f.FeedLink, getCharset(res))
+	feed, err := parser.ParseAndFix(http.MaxBytesReader(nil, res.Body, maxBodySize), f.FeedLink, getCharset(res))
 	if err != nil {
 		return nil, err
 	}
 
-	lmod = res.Header.Get("Last-Modified")
-	etag = res.Header.Get("Etag")
-	now := time.Now().UTC()
-	if lmod != "" || etag != "" {
-		db.UpdateFeedState(f.Id, model.UpdateFeedStateParams{
-			HTTPLastModified: &lmod,
-			HTTPEtag:         &etag,
-			LastRefreshed:    &now,
-		})
-	}
 	return ConvertItems(feed.Items, f), nil
 }
 
@@ -206,29 +206,4 @@ func getCharset(res *http.Response) string {
 		}
 	}
 	return ""
-}
-
-func GetBody(url string) (string, error) {
-	res, err := client.get(url)
-	if err != nil {
-		return "", err
-	}
-	defer res.Body.Close()
-
-	var r io.Reader
-
-	ctype := res.Header.Get("Content-Type")
-	if strings.Contains(ctype, "charset") {
-		r, err = charset.NewReader(res.Body, ctype)
-		if err != nil {
-			return "", err
-		}
-	} else {
-		r = res.Body
-	}
-	body, err := io.ReadAll(r)
-	if err != nil {
-		return "", err
-	}
-	return string(body), nil
 }

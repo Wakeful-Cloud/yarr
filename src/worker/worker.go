@@ -2,6 +2,7 @@ package worker
 
 import (
 	"log"
+	"net/http"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -14,19 +15,19 @@ const NUM_WORKERS = 4
 
 type Worker struct {
 	db      storage.Storage
-	pending *int32
+	client  *http.Client
+	pending atomic.Int32
 	refresh *time.Ticker
 	reflock sync.Mutex
 	stopper chan bool
 }
 
-func NewWorker(db storage.Storage) *Worker {
-	pending := int32(0)
-	return &Worker{db: db, pending: &pending}
+func NewWorker(db storage.Storage, client *http.Client) *Worker {
+	return &Worker{db: db, client: client}
 }
 
 func (w *Worker) FeedsPending() int32 {
-	return *w.pending
+	return w.pending.Load()
 }
 
 func (w *Worker) StartFeedCleaner() {
@@ -41,7 +42,7 @@ func (w *Worker) StartFeedCleaner() {
 }
 
 func (w *Worker) FindFeedFavicon(feed model.Feed) {
-	icon, err := findFavicon(feed.Link, feed.FeedLink)
+	icon, err := findFavicon(w.client, feed.Link, feed.FeedLink)
 	if err != nil {
 		log.Printf("Failed to find favicon for %s (%s): %s", feed.FeedLink, feed.Link, err)
 	}
@@ -84,7 +85,7 @@ func (w *Worker) RefreshFeeds() {
 	w.reflock.Lock()
 	defer w.reflock.Unlock()
 
-	if *w.pending > 0 {
+	if w.pending.Load() > 0 {
 		log.Print("Refreshing already in progress")
 		return
 	}
@@ -96,7 +97,7 @@ func (w *Worker) RefreshFeeds() {
 	}
 
 	log.Print("Refreshing feeds")
-	atomic.StoreInt32(w.pending, int32(len(feeds)))
+	w.pending.Store(int32(len(feeds)))
 	go w.refresher(feeds)
 }
 
@@ -118,7 +119,7 @@ func (w *Worker) refresher(feeds []model.Feed) {
 		if len(items) > 0 {
 			w.db.CreateItems(items)
 		}
-		atomic.AddInt32(w.pending, -1)
+		w.pending.Add(-1)
 	}
 	close(srcqueue)
 	close(dstqueue)
@@ -131,7 +132,7 @@ func (w *Worker) worker(srcqueue <-chan model.Feed, dstqueue chan<- []model.Item
 		empty := ""
 		w.db.UpdateFeedState(feed.Id, model.UpdateFeedStateParams{LastError: &empty})
 
-		items, err := listItems(feed, w.db)
+		items, err := listItems(w.client, feed)
 		if err != nil {
 			errMsg := err.Error()
 			w.db.UpdateFeedState(feed.Id, model.UpdateFeedStateParams{LastError: &errMsg})

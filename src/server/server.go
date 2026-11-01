@@ -1,7 +1,9 @@
 package server
 
 import (
+	"context"
 	"html/template"
+	"io"
 	"io/fs"
 	"log"
 	"net"
@@ -10,7 +12,29 @@ import (
 	"strings"
 
 	"github.com/nkanaev/yarr/src/storage"
+	"github.com/nkanaev/yarr/src/storage/model"
 )
+
+type FeedScheduler interface {
+	FeedsPending() int32
+	RefreshFeeds()
+	SetRefreshRate(minutes int64)
+}
+
+type FeedLink struct {
+	URL   string `json:"url"`
+	Title string `json:"title"`
+}
+
+type AddFeedResult struct {
+	Feed    *model.Feed
+	Choices []FeedLink
+}
+
+type FeedIngestor interface {
+	AddFeed(ctx context.Context, store storage.Storage, feed FeedLink) (AddFeedResult, error)
+	AddOPML(ctx context.Context, store storage.Storage, file io.Reader) error
+}
 
 type Server struct {
 	Addr     string
@@ -19,9 +43,12 @@ type Server struct {
 	Storage   StorageProvider
 	Scheduler FeedScheduler
 	Auth      AuthProvider
+	Ingestor  FeedIngestor
 
 	StaticFS fs.FS
 	Template *template.Template
+
+	crawlClient *http.Client
 
 	// https
 	CertFile string
@@ -30,7 +57,8 @@ type Server struct {
 
 func NewServer(addr string) *Server {
 	return &Server{
-		Addr: addr,
+		Addr:        addr,
+		crawlClient: newCrawlClient(),
 	}
 }
 
